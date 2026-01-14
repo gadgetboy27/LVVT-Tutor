@@ -55,105 +55,54 @@ function switchAuthTab(tab) {
 
 async function handleLogin(e) {
     e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
+    const email = document.getElementById('login-email').value || 'demo@lvvlearn.nz';
     
     showLoading('Logging in...');
     
-    try {
-        const formData = new FormData();
-        formData.append('username', email);
-        formData.append('password', password);
-        
-        const response = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.detail || 'Login failed');
-        }
-        
-        authToken = data.access_token;
-        localStorage.setItem('lvv_token', authToken);
-        await loadCurrentUser();
-        showMainContent();
-    } catch (error) {
-        document.getElementById('login-error').textContent = error.message;
-        document.getElementById('login-error').classList.remove('hidden');
-    } finally {
-        hideLoading();
-    }
+    currentUser = { email: email, id: 1 };
+    authToken = 'mock-token';
+    localStorage.setItem('lvv_token', authToken);
+    localStorage.setItem('lvv_user', JSON.stringify(currentUser));
+    document.getElementById('username-display').textContent = email;
+    
+    hideLoading();
+    showMainContent();
 }
 
 async function handleRegister(e) {
     e.preventDefault();
-    const email = document.getElementById('register-email').value;
-    const password = document.getElementById('register-password').value;
-    const confirm = document.getElementById('register-confirm').value;
-    
-    if (password !== confirm) {
-        document.getElementById('register-error').textContent = 'Passwords do not match';
-        document.getElementById('register-error').classList.remove('hidden');
-        return;
-    }
+    const email = document.getElementById('register-email').value || 'demo@lvvlearn.nz';
     
     showLoading('Creating account...');
     
-    try {
-        const response = await fetch(`${API_BASE}/api/auth/register`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.detail || 'Registration failed');
-        }
-        
-        const formData = new FormData();
-        formData.append('username', email);
-        formData.append('password', password);
-        
-        const loginResponse = await fetch(`${API_BASE}/api/auth/login`, {
-            method: 'POST',
-            body: formData
-        });
-        
-        const loginData = await loginResponse.json();
-        authToken = loginData.access_token;
-        localStorage.setItem('lvv_token', authToken);
-        await loadCurrentUser();
-        showMainContent();
-    } catch (error) {
-        document.getElementById('register-error').textContent = error.message;
-        document.getElementById('register-error').classList.remove('hidden');
-    } finally {
-        hideLoading();
-    }
+    currentUser = { email: email, id: 1 };
+    authToken = 'mock-token';
+    localStorage.setItem('lvv_token', authToken);
+    localStorage.setItem('lvv_user', JSON.stringify(currentUser));
+    document.getElementById('username-display').textContent = email;
+    
+    hideLoading();
+    showMainContent();
 }
 
 function handleLogout() {
     localStorage.removeItem('lvv_token');
     localStorage.removeItem('lvv_quiz_state');
+    localStorage.removeItem('lvv_user');
     authToken = null;
     currentUser = null;
     showAuthSection();
 }
 
 async function loadCurrentUser() {
-    const response = await fetch(`${API_BASE}/api/auth/me`, {
-        headers: { 'Authorization': `Bearer ${authToken}` }
-    });
-    
-    if (!response.ok) throw new Error('Failed to load user');
-    
-    currentUser = await response.json();
-    document.getElementById('username-display').textContent = currentUser.email;
+    const savedUser = localStorage.getItem('lvv_user');
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        document.getElementById('username-display').textContent = currentUser.email;
+    } else {
+        currentUser = { email: 'demo@lvvlearn.nz', id: 1 };
+        document.getElementById('username-display').textContent = currentUser.email;
+    }
 }
 
 function showAuthSection() {
@@ -177,20 +126,10 @@ async function showMainContent() {
 }
 
 async function loadProgress() {
-    try {
-        const response = await fetch(`${API_BASE}/api/learning/progress/summary`, {
-            headers: { 'Authorization': `Bearer ${authToken}` }
-        });
-        
-        if (response.ok) {
-            const data = await response.json();
-            document.getElementById('total-quizzes').textContent = data.total_quizzes || 0;
-            document.getElementById('avg-score').textContent = `${Math.round(data.average_score || 0)}%`;
-            document.getElementById('sections-mastered').textContent = data.sections_mastered || 0;
-        }
-    } catch (e) {
-        console.error('Failed to load progress:', e);
-    }
+    const savedProgress = JSON.parse(localStorage.getItem('lvv_progress') || '{"quizzes":0,"score":0,"mastered":0}');
+    document.getElementById('total-quizzes').textContent = savedProgress.quizzes || 0;
+    document.getElementById('avg-score').textContent = `${Math.round(savedProgress.score || 0)}%`;
+    document.getElementById('sections-mastered').textContent = savedProgress.mastered || 0;
 }
 
 async function loadCategories() {
@@ -284,7 +223,6 @@ async function startQuiz(standardNumber, title) {
         const response = await fetch(`${API_BASE}/api/quiz/generate`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -404,7 +342,6 @@ async function submitAnswer() {
         const response = await fetch(`${API_BASE}/api/quiz/evaluate-answer`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -545,23 +482,13 @@ async function showQuizComplete() {
     
     localStorage.removeItem('lvv_quiz_state');
     
-    try {
-        await fetch(`${API_BASE}/api/quiz/submit`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                standard_number: currentQuiz.standardNumber,
-                score: avgScore,
-                total_questions: quizAnswers.length,
-                correct_answers: correctCount
-            })
-        });
-    } catch (e) {
-        console.error('Failed to save quiz result:', e);
-    }
+    const progress = JSON.parse(localStorage.getItem('lvv_progress') || '{"quizzes":0,"score":0,"mastered":0,"scores":[]}');
+    progress.quizzes = (progress.quizzes || 0) + 1;
+    progress.scores = progress.scores || [];
+    progress.scores.push(avgScore);
+    progress.score = Math.round(progress.scores.reduce((a,b) => a+b, 0) / progress.scores.length);
+    if (avgScore >= 80) progress.mastered = (progress.mastered || 0) + 1;
+    localStorage.setItem('lvv_progress', JSON.stringify(progress));
 }
 
 function saveQuizState() {

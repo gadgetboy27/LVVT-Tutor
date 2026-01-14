@@ -124,8 +124,7 @@ def get_standard_detail(
 @router.post("/update")
 def update_standards(
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     background_tasks.add_task(sync_standards_background, db)
     return {"message": "Standards update started in background"}

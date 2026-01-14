@@ -71,8 +71,7 @@ class QuizResultResponse(BaseModel):
 @router.post("/generate", response_model=QuizGenerateResponse)
 def generate_quiz(
     request: QuizGenerateRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     standard = db.query(Standard).filter(
         Standard.standard_number == request.standard_number
@@ -166,8 +165,7 @@ def get_quiz_history(
 
 @router.post("/evaluate-answer", response_model=EvaluateAnswerResponse)
 def evaluate_user_answer(
-    request: EvaluateAnswerRequest,
-    current_user: User = Depends(get_current_user)
+    request: EvaluateAnswerRequest
 ):
     result = evaluate_answer(
         question=request.question,
