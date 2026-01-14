@@ -1,8 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sql_func, desc
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.enhanced import PeerStats

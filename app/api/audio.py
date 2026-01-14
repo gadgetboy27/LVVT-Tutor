@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from typing import Optional
 import hashlib
 import os
-from datetime import datetime
 from app.core.database import get_db
 from app.models.enhanced import AudioCache
 from app.services.rag.vector_store import get_chroma_client, get_or_create_collection

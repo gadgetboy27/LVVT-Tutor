@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
 from app.core.database import get_db
 from app.models.enhanced import Mentor, MentorshipRequest, MentorStatus
 from app.models.user import User

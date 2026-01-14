@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import os
 from app.core.database import get_db

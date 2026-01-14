@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func as sql_func
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.enhanced import SpacedRepetitionCard

@@ -158,11 +158,15 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 - `DELETE /api/offline/{export_id}` - Delete export
 - `GET /api/offline/quick-reference/{category}` - Get category summary
 
-### PDF Viewer (NEW)
+### PDF Viewer
 - `GET /api/pdf/view/{standard_number}` - View PDF inline
 - `GET /api/pdf/download/{standard_number}` - Download PDF
 - `GET /api/pdf/available` - List cached PDFs
 - `GET /api/pdf/info/{standard_number}` - Get PDF metadata
+
+### Analytics
+- `GET /api/analytics/summary` - Usage metrics summary (last N days)
+- `GET /api/analytics/insights` - Smart optimization recommendations
 
 ## Core Competencies (7 Pillars)
 The app emphasizes the soft skills required for LVV Certifiers:
@@ -212,6 +216,7 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 8. Monitor overall certification readiness percentage
 
 ## Recent Changes
+- 2026-01-14: Added lightweight analytics tracking (usage metrics, device breakdown, optimization insights)
 - 2026-01-14: Added 8 enhanced backend features (practice exams, spaced repetition, peer comparison, mentors, audio, offline, PDF viewer)
 - 2026-01-14: Added comprehensive learning paths, scenario training, readiness tracker, and document viewer
 - 2026-01-14: Indexed ORS Chapters 2-5, VIRM Threshold Guide, and 30+ LVV Standards from official PDFs
