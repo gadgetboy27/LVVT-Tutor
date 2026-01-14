@@ -112,5 +112,6 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 ```
 
 ## Recent Changes
+- 2026-01-14: Added interactive quiz frontend with login/register, AI question generation, answer evaluation, progress tracking, and resume capability
 - 2026-01-14: Integrated LVV-Learn blueprint with teaching sessions, section mastery tracking, competency lookup, and AI summarization
 - 2026-01-14: Initial project setup with full infrastructure
