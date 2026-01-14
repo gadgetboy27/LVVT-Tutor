@@ -17,3 +17,4 @@ class User(Base):
     
     quiz_results = relationship("QuizResult", back_populates="user")
     progress = relationship("UserProgress", back_populates="user")
+    section_masteries = relationship("SectionMastery", back_populates="user")
