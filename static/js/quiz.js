@@ -198,10 +198,19 @@ async function loadCategories() {
     const grid = document.getElementById('categories-grid');
     
     try {
-        const response = await fetch(`${API_BASE}/api/standards/categories`);
+        const response = await fetch(`${API_BASE}/api/standards/categories`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-cache'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+        
         const categories = await response.json();
         
-        if (categories.length === 0) {
+        if (!categories || categories.length === 0) {
             grid.innerHTML = `
                 <div class="category-card" onclick="updateStandards()">
                     <h3>Get Started</h3>
@@ -218,7 +227,8 @@ async function loadCategories() {
             </div>
         `).join('');
     } catch (e) {
-        grid.innerHTML = '<p>Failed to load categories. Please try again.</p>';
+        console.error('loadCategories error:', e);
+        grid.innerHTML = `<p>Failed to load categories. ${e.message || 'Please check your connection and try again.'}</p>`;
     }
 }
 
@@ -245,7 +255,16 @@ async function selectCategory(category) {
     showLoading('Loading standards...');
     
     try {
-        const response = await fetch(`${API_BASE}/api/standards/by-category/${encodeURIComponent(category)}`);
+        const response = await fetch(`${API_BASE}/api/standards/by-category/${encodeURIComponent(category)}`, {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-cache'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+        }
+        
         const standards = await response.json();
         
         document.getElementById('selected-category-title').textContent = category;
