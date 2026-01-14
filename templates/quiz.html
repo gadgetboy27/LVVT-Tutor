@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LVV-Learn: Quiz Training</title>
+    <link rel="stylesheet" href="/static/css/quiz.css">
+</head>
+<body>
+    <div id="app">
+        <header class="header">
+            <div class="logo">
+                <h1>LVV-Learn</h1>
+                <span class="tagline">LVV Certifier Training</span>
+            </div>
+            <div id="user-info" class="user-info hidden">
+                <span id="username-display"></span>
+                <button id="logout-btn" class="btn btn-secondary">Logout</button>
+            </div>
+        </header>
+
+        <div id="auth-section" class="auth-section">
+            <div class="auth-card">
+                <h2>Welcome to LVV-Learn</h2>
+                <p>Train to become an LVV Certifier with AI-powered quizzes based on official LVVTA standards.</p>
+                
+                <div class="auth-tabs">
+                    <button class="tab-btn active" data-tab="login">Login</button>
+                    <button class="tab-btn" data-tab="register">Register</button>
+                </div>
+
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" required placeholder="your@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" required placeholder="Your password">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Login</button>
+                    <p id="login-error" class="error-message hidden"></p>
+                </form>
+
+                <form id="register-form" class="auth-form hidden">
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" required placeholder="your@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Password</label>
+                        <input type="password" id="register-password" required placeholder="Choose a password (min 6 chars)">
+                    </div>
+                    <div class="form-group">
+                        <label for="register-confirm">Confirm Password</label>
+                        <input type="password" id="register-confirm" required placeholder="Confirm your password">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+                    <p id="register-error" class="error-message hidden"></p>
+                </form>
+            </div>
+        </div>
+
+        <main id="main-content" class="main-content hidden">
+            <div id="dashboard" class="dashboard">
+                <div class="progress-overview">
+                    <h2>Your Progress</h2>
+                    <div class="progress-stats">
+                        <div class="stat-card">
+                            <span class="stat-value" id="total-quizzes">0</span>
+                            <span class="stat-label">Quizzes Taken</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="avg-score">0%</span>
+                            <span class="stat-label">Average Score</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="sections-mastered">0</span>
+                            <span class="stat-label">Sections Mastered</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="resume-section hidden" id="resume-section">
+                    <div class="resume-card">
+                        <h3>Continue Where You Left Off</h3>
+                        <p id="resume-info"></p>
+                        <button id="resume-btn" class="btn btn-primary">Resume Quiz</button>
+                    </div>
+                </div>
+
+                <div class="category-section">
+                    <h2>Choose a Topic</h2>
+                    <p class="subtitle">Select a category to start a quiz based on LVVTA standards</p>
+                    <div id="categories-grid" class="categories-grid">
+                        <div class="loading">Loading categories...</div>
+                    </div>
+                </div>
+
+                <div class="standards-section hidden" id="standards-section">
+                    <button id="back-to-categories" class="btn btn-secondary">Back to Topics</button>
+                    <h2 id="selected-category-title">Standards</h2>
+                    <div id="standards-list" class="standards-list"></div>
+                </div>
+            </div>
+
+            <div id="quiz-container" class="quiz-container hidden">
+                <div class="quiz-header">
+                    <div class="quiz-info">
+                        <h2 id="quiz-title">Quiz</h2>
+                        <p id="quiz-standard"></p>
+                    </div>
+                    <div class="quiz-progress">
+                        <span id="question-counter">Question 1 of 5</span>
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                    </div>
+                    <button id="save-exit-btn" class="btn btn-secondary">Save & Exit</button>
+                </div>
+
+                <div class="question-card" id="question-card">
+                    <div class="difficulty-badge" id="difficulty-badge">Medium</div>
+                    <p class="question-text" id="question-text"></p>
+                    
+                    <div id="answer-options" class="answer-options"></div>
+                    
+                    <div id="text-answer-section" class="text-answer-section hidden">
+                        <textarea id="text-answer" placeholder="Type your answer here..." rows="4"></textarea>
+                    </div>
+
+                    <div id="feedback-section" class="feedback-section hidden">
+                        <div id="feedback-result" class="feedback-result"></div>
+                        <p id="feedback-explanation"></p>
+                        <p id="feedback-citation" class="citation"></p>
+                    </div>
+
+                    <div class="question-actions">
+                        <button id="submit-answer-btn" class="btn btn-primary">Submit Answer</button>
+                        <button id="next-question-btn" class="btn btn-primary hidden">Next Question</button>
+                    </div>
+                </div>
+
+                <div id="quiz-complete" class="quiz-complete hidden">
+                    <h2>Quiz Complete!</h2>
+                    <div class="final-score">
+                        <span class="score-value" id="final-score">0%</span>
+                        <span class="score-label">Final Score</span>
+                    </div>
+                    <div class="score-breakdown" id="score-breakdown"></div>
+                    <p id="mastery-message"></p>
+                    <div class="complete-actions">
+                        <button id="retry-quiz-btn" class="btn btn-secondary">Try Again</button>
+                        <button id="back-to-dashboard-btn" class="btn btn-primary">Back to Dashboard</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <p id="loading-message">Loading...</p>
+        </div>
+    </div>
+
+    <script src="/static/js/quiz.js"></script>
+</body>
+</html>

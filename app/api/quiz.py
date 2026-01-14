@@ -11,7 +11,7 @@ from app.services.rag.vector_store import (
     get_or_create_collection,
     query_documents
 )
-from app.services.rag.ai_service import generate_quiz_questions
+from app.services.rag.ai_service import generate_quiz_questions, evaluate_answer
 
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
 
@@ -21,6 +21,8 @@ class QuizQuestion(BaseModel):
     options: List[str]
     correct_answer: str
     explanation: str
+    difficulty: str = "medium"
+    type: str = "MCQ"
 
 
 class QuizGenerateRequest(BaseModel):
@@ -35,7 +37,25 @@ class QuizGenerateResponse(BaseModel):
 
 class QuizSubmitRequest(BaseModel):
     standard_number: str
-    answers: dict
+    score: float = 0
+    total_questions: int = 0
+    correct_answers: int = 0
+    answers: dict = {}
+
+
+class EvaluateAnswerRequest(BaseModel):
+    question: str
+    user_answer: str
+    correct_answer: str
+    difficulty: str = "medium"
+    standard_number: str
+
+
+class EvaluateAnswerResponse(BaseModel):
+    is_correct: bool
+    score: int
+    explanation: str
+    citation: str = ""
 
 
 class QuizResultResponse(BaseModel):
@@ -108,9 +128,13 @@ def submit_quiz(
         Standard.standard_number == request.standard_number
     ).first()
     
-    total_questions = len(request.answers)
-    correct_answers = sum(1 for q, a in request.answers.items() if a.get('is_correct', False))
-    score = (correct_answers / total_questions * 100) if total_questions > 0 else 0
+    total_questions = request.total_questions if request.total_questions > 0 else len(request.answers)
+    correct_answers = request.correct_answers if request.correct_answers > 0 else sum(
+        1 for q, a in request.answers.items() if a.get('is_correct', False)
+    )
+    score = request.score if request.score > 0 else (
+        (correct_answers / total_questions * 100) if total_questions > 0 else 0
+    )
     
     result = QuizResult(
         user_id=current_user.id,
@@ -138,3 +162,24 @@ def get_quiz_history(
     ).order_by(QuizResult.created_at.desc()).limit(20).all()
     
     return results
+
+
+@router.post("/evaluate-answer", response_model=EvaluateAnswerResponse)
+def evaluate_user_answer(
+    request: EvaluateAnswerRequest,
+    current_user: User = Depends(get_current_user)
+):
+    result = evaluate_answer(
+        question=request.question,
+        user_answer=request.user_answer,
+        correct_answer=request.correct_answer,
+        difficulty=request.difficulty,
+        standard_number=request.standard_number
+    )
+    
+    return EvaluateAnswerResponse(
+        is_correct=result.get("is_correct", False),
+        score=result.get("score", 0),
+        explanation=result.get("explanation", ""),
+        citation=result.get("citation", "")
+    )

@@ -176,6 +176,61 @@ Format your response clearly with examples."""
     return response.choices[0].message.content
 
 
+def evaluate_answer(question: str, user_answer: str, correct_answer: str, difficulty: str, standard_number: str) -> Dict[str, Any]:
+    difficulty_multiplier = {"easy": 0.8, "medium": 1.0, "hard": 1.2}
+    multiplier = difficulty_multiplier.get(difficulty.lower(), 1.0)
+    
+    system_prompt = """You are an expert LVV certification examiner. Evaluate the trainee's answer against the correct answer.
+Consider partial correctness - if they demonstrate understanding even with minor errors, give partial credit.
+Be constructive in your feedback."""
+
+    user_prompt = f"""Evaluate this answer for LVV Standard {standard_number}:
+
+QUESTION: {question}
+CORRECT ANSWER: {correct_answer}
+TRAINEE'S ANSWER: {user_answer}
+DIFFICULTY: {difficulty}
+
+Respond with a JSON object:
+{{
+    "is_correct": true/false (true if substantially correct),
+    "score": 0-100 (consider partial credit),
+    "explanation": "Detailed feedback explaining what was correct/incorrect",
+    "citation": "Reference to the relevant section of {standard_number}"
+}}
+
+Be fair but rigorous - this is professional certification training."""
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        content = response.choices[0].message.content
+        start = content.find('{')
+        end = content.rfind('}') + 1
+        if start != -1 and end > start:
+            result = json.loads(content[start:end])
+            result['score'] = min(100, int(result.get('score', 0) * multiplier))
+            return result
+    except Exception:
+        pass
+    
+    is_correct = user_answer.lower().strip() in correct_answer.lower() or correct_answer.lower() in user_answer.lower()
+    return {
+        "is_correct": is_correct,
+        "score": 100 if is_correct else 0,
+        "explanation": f"The correct answer is: {correct_answer}",
+        "citation": f"Reference: LVV Standard {standard_number}"
+    }
+
+
 def generate_section_quiz(section_content: str, section_title: str, standard_number: str, count: int = 5) -> List[Dict[str, Any]]:
     system_prompt = """You are an expert quiz creator for LVV certification training.
 Create questions that test certifier-level understanding of the specific section content."""
