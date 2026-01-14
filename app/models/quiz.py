@@ -1,0 +1,45 @@
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text, JSON
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from app.core.database import Base
+
+
+class Standard(Base):
+    __tablename__ = "standards"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    standard_number = Column(String, unique=True, index=True, nullable=False)
+    title = Column(String, nullable=False)
+    pdf_url = Column(String, nullable=True)
+    last_modified = Column(DateTime(timezone=True), nullable=True)
+    content_hash = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class QuizResult(Base):
+    __tablename__ = "quiz_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    standard_id = Column(Integer, ForeignKey("standards.id"), nullable=True)
+    score = Column(Float, nullable=False)
+    total_questions = Column(Integer, nullable=False)
+    correct_answers = Column(Integer, nullable=False)
+    answers = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    user = relationship("User", back_populates="quiz_results")
+
+
+class UserProgress(Base):
+    __tablename__ = "user_progress"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    standard_id = Column(Integer, ForeignKey("standards.id"), nullable=True)
+    last_accessed = Column(DateTime(timezone=True), server_default=func.now())
+    completion_percentage = Column(Float, default=0.0)
+    notes = Column(Text, nullable=True)
+    
+    user = relationship("User", back_populates="progress")
