@@ -48,25 +48,13 @@ def parse_standards_page(html_content: str, base_url: str) -> List[Dict]:
 
 
 def extract_standard_number(title: str, url: str) -> str:
-    patterns = [
-        r'LVV\s*(\d{2,3}-\d{2})',
-        r'(\d{2,3}-\d{2})',
-        r'Standard\s+(\d+)',
-        r'LVV\s+(\d+)',
-        r'LVVS[_-]?(\w+)',
-        r'LVVCG[_-]?(\w+)',
-    ]
+    import os
+    filename = os.path.basename(url).replace('.pdf', '').replace('.PDF', '')
+    if filename and len(filename) > 3:
+        return filename[:100]
     
-    for pattern in patterns:
-        match = re.search(pattern, title, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        match = re.search(pattern, url, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    
-    clean_title = re.sub(r'[^\w\s-]', '', title)[:30]
-    return clean_title.strip() if clean_title.strip() else "unknown"
+    clean_title = re.sub(r'[^\w\s-]', '', title)[:50]
+    return clean_title.strip() if clean_title.strip() else url[-50:]
 
 
 def get_pdf_last_modified(url: str) -> Optional[datetime]:
