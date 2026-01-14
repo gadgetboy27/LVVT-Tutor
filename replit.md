@@ -12,13 +12,21 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 │   │   ├── auth.py            # Authentication endpoints
 │   │   ├── standards.py       # Standards & RAG Q&A endpoints
 │   │   ├── quiz.py            # Quiz generation & submission
-│   │   └── learning.py        # Teaching sessions & mastery tracking
+│   │   ├── learning.py        # Teaching sessions & mastery tracking
+│   │   ├── practice_exam.py   # Timed mock certification exams
+│   │   ├── spaced_repetition.py # SM-2 algorithm flashcard system
+│   │   ├── peer_comparison.py # Anonymous leaderboards & rankings
+│   │   ├── mentor.py          # Mentor matching & requests
+│   │   ├── audio.py           # Text-to-speech study mode
+│   │   ├── offline.py         # Downloadable study guide exports
+│   │   └── pdf_viewer.py      # PDF viewing & download
 │   ├── core/                   # Core configuration
 │   │   ├── config.py          # App settings
 │   │   └── database.py        # PostgreSQL connection
 │   ├── models/                 # SQLAlchemy models
 │   │   ├── user.py            # User model with relationships
-│   │   └── quiz.py            # Standard, StandardSection, QuizResult, SectionMastery, UserProgress
+│   │   ├── quiz.py            # Standard, StandardSection, QuizResult, SectionMastery, UserProgress
+│   │   └── enhanced.py        # PracticeExam, SpacedRepetitionCard, PeerStats, Mentor, etc.
 │   └── services/               # Business logic
 │       ├── auth/              # JWT authentication
 │       ├── rag/               # Vector store, PDF processing, AI services, PDF indexer
@@ -26,7 +34,9 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 ├── main.py                     # FastAPI app entry point
 ├── static/                     # Static files (CSS, JS)
 ├── templates/                  # HTML templates
-├── pdf_cache/                  # Cached PDF downloads
+├── pdf_cache/                  # Cached PDF downloads (30 PDFs)
+├── audio_cache/                # Generated TTS audio files
+├── study_exports/              # Downloadable study guides
 └── chroma_db/                  # ChromaDB vector store
 ```
 
@@ -58,11 +68,21 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 - "Read Document" option before taking quiz
 - Document viewer with back button
 
+**Phase E - Enhanced Learning Features - COMPLETE**
+- Practice Exam Mode: Timed, multi-standard mock certification exams
+- Spaced Repetition: SM-2 algorithm flashcards for struggling topics
+- Progress Persistence: Quiz history saved to database across sessions
+- PDF Viewer: Direct access to original LVVTA PDF documents
+- Peer Comparison: Anonymous leaderboards and percentile rankings
+- Audio Study Mode: Text-to-speech for hands-free learning
+- Offline Mode: Downloadable JSON study guides with practice questions
+- Mentor Matching: Connect trainees with experienced certifiers
+
 ## Tech Stack
 - **Backend**: FastAPI, Python 3.11
 - **Database**: PostgreSQL (Replit-managed)
 - **Vector DB**: ChromaDB (persistent)
-- **AI**: OpenAI via Replit AI Integrations
+- **AI**: OpenAI via Replit AI Integrations (gpt-audio-mini for TTS)
 - **Auth**: JWT with python-jose, passlib/bcrypt
 - **Scraping**: BeautifulSoup4, requests, PyPDF2
 
@@ -96,6 +116,53 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 - `POST /api/quiz/evaluate-answer` - AI evaluation of answers
 - `POST /api/quiz/submit` - Submit answers, save result
 - `GET /api/quiz/history` - User's quiz history
+
+### Practice Exam (NEW)
+- `POST /api/practice-exam/start` - Start timed mock exam
+- `GET /api/practice-exam/{exam_id}` - Get exam status & time remaining
+- `POST /api/practice-exam/submit` - Submit exam answers
+- `GET /api/practice-exam/history/all` - View exam history
+
+### Spaced Repetition (NEW)
+- `GET /api/spaced-repetition/due` - Get cards due for review
+- `POST /api/spaced-repetition/review` - Submit card review (quality 0-5)
+- `POST /api/spaced-repetition/generate` - Auto-generate cards from standard
+- `POST /api/spaced-repetition/create` - Manually create flashcard
+- `GET /api/spaced-repetition/stats` - View study statistics
+- `DELETE /api/spaced-repetition/{card_id}` - Delete card
+
+### Peer Comparison (NEW)
+- `GET /api/peers/leaderboard` - Anonymous leaderboard
+- `GET /api/peers/my-ranking` - Your rank & percentile
+- `POST /api/peers/update-stats` - Refresh your statistics
+- `GET /api/peers/category-rankings/{category}` - Category-specific rankings
+
+### Mentors (NEW)
+- `GET /api/mentors/` - List available mentors
+- `GET /api/mentors/{mentor_id}` - Get mentor details
+- `POST /api/mentors/request` - Request mentorship
+- `GET /api/mentors/my-requests/` - View your requests
+- `POST /api/mentors/register` - Register as mentor
+- `PUT /api/mentors/status/{status}` - Update mentor availability
+
+### Audio Study Mode (NEW)
+- `POST /api/audio/synthesize` - Convert text to speech
+- `POST /api/audio/standard` - Generate audio for standard content
+- `GET /api/audio/file/{audio_hash}` - Download audio file
+- `GET /api/audio/available/{standard_number}` - List audio sections
+
+### Offline Mode (NEW)
+- `POST /api/offline/export` - Create downloadable study guide
+- `GET /api/offline/download/{export_id}` - Download study guide
+- `GET /api/offline/my-exports` - List your exports
+- `DELETE /api/offline/{export_id}` - Delete export
+- `GET /api/offline/quick-reference/{category}` - Get category summary
+
+### PDF Viewer (NEW)
+- `GET /api/pdf/view/{standard_number}` - View PDF inline
+- `GET /api/pdf/download/{standard_number}` - Download PDF
+- `GET /api/pdf/available` - List cached PDFs
+- `GET /api/pdf/info/{standard_number}` - Get PDF metadata
 
 ## Core Competencies (7 Pillars)
 The app emphasizes the soft skills required for LVV Certifiers:
@@ -145,6 +212,7 @@ uvicorn main:app --host 0.0.0.0 --port 5000 --reload
 8. Monitor overall certification readiness percentage
 
 ## Recent Changes
+- 2026-01-14: Added 8 enhanced backend features (practice exams, spaced repetition, peer comparison, mentors, audio, offline, PDF viewer)
 - 2026-01-14: Added comprehensive learning paths, scenario training, readiness tracker, and document viewer
 - 2026-01-14: Indexed ORS Chapters 2-5, VIRM Threshold Guide, and 30+ LVV Standards from official PDFs
 - 2026-01-14: Added interactive quiz frontend with login/register, AI question generation, answer evaluation, progress tracking
