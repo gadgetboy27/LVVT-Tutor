@@ -1123,6 +1123,15 @@ body {
         font-size: 0.85rem;
     }
     
+    .categories-grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+    
+    .category-card {
+        padding: 1rem;
+    }
+    
     .paths-grid,
     .scenarios-list,
     .readiness-grid {
