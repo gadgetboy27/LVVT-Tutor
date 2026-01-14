@@ -1,0 +1,4 @@
+modules = ["python-3.11"]
+
+[agent]
+integrations = ["python_database:1.0.0"]
