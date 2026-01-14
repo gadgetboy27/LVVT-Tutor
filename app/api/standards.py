@@ -89,6 +89,46 @@ def get_standards_by_category(
     return standards
 
 
+@router.get("/content/{standard_number}")
+def get_standard_content(
+    standard_number: str,
+    db: Session = Depends(get_db)
+):
+    try:
+        chroma_client = get_chroma_client()
+        collection = get_or_create_collection(chroma_client)
+        
+        results = collection.get(
+            where={"standard_number": standard_number},
+            include=["documents", "metadatas"]
+        )
+        
+        if results and results.get('documents'):
+            chunks = results['documents']
+            return {
+                "standard_number": standard_number,
+                "content": "\n\n".join(chunks),
+                "chunks": chunks,
+                "total_chunks": len(chunks)
+            }
+        
+        standard = db.query(Standard).filter(
+            Standard.standard_number == standard_number
+        ).first()
+        
+        if standard and standard.full_text:
+            return {
+                "standard_number": standard_number,
+                "content": standard.full_text,
+                "chunks": [standard.full_text],
+                "total_chunks": 1
+            }
+        
+        raise HTTPException(status_code=404, detail="Content not indexed yet")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{standard_number}", response_model=StandardDetailResponse)
 def get_standard_detail(
     standard_number: str,

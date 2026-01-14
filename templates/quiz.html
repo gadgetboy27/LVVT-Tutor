@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LVV-Learn: Quiz Training</title>
+    <title>LVV-Learn: Certifier Training</title>
     <link rel="stylesheet" href="/static/css/quiz.css">
 </head>
 <body>
@@ -32,11 +32,11 @@
                 <form id="login-form" class="auth-form">
                     <div class="form-group">
                         <label for="login-email">Email</label>
-                        <input type="email" id="login-email" required placeholder="your@email.com">
+                        <input type="email" id="login-email" placeholder="your@email.com" autocomplete="email">
                     </div>
                     <div class="form-group">
                         <label for="login-password">Password</label>
-                        <input type="password" id="login-password" required placeholder="Your password">
+                        <input type="password" id="login-password" placeholder="Your password" autocomplete="current-password">
                     </div>
                     <button type="submit" class="btn btn-primary btn-full">Login</button>
                     <p id="login-error" class="error-message hidden"></p>
@@ -45,15 +45,15 @@
                 <form id="register-form" class="auth-form hidden">
                     <div class="form-group">
                         <label for="register-email">Email</label>
-                        <input type="email" id="register-email" required placeholder="your@email.com">
+                        <input type="email" id="register-email" placeholder="your@email.com" autocomplete="email">
                     </div>
                     <div class="form-group">
                         <label for="register-password">Password</label>
-                        <input type="password" id="register-password" required placeholder="Choose a password (min 6 chars)">
+                        <input type="password" id="register-password" placeholder="Choose a password (min 6 chars)" autocomplete="new-password">
                     </div>
                     <div class="form-group">
                         <label for="register-confirm">Confirm Password</label>
-                        <input type="password" id="register-confirm" required placeholder="Confirm your password">
+                        <input type="password" id="register-confirm" placeholder="Confirm your password" autocomplete="new-password">
                     </div>
                     <button type="submit" class="btn btn-primary btn-full">Create Account</button>
                     <p id="register-error" class="error-message hidden"></p>
@@ -62,7 +62,14 @@
         </div>
 
         <main id="main-content" class="main-content hidden">
-            <div id="dashboard" class="dashboard">
+            <nav class="main-nav">
+                <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+                <button class="nav-btn" data-view="learning-paths">Learning Paths</button>
+                <button class="nav-btn" data-view="scenarios">Scenarios</button>
+                <button class="nav-btn" data-view="readiness">Readiness Check</button>
+            </nav>
+
+            <div id="dashboard" class="dashboard view-section">
                 <div class="progress-overview">
                     <h2>Your Progress</h2>
                     <div class="progress-stats">
@@ -76,7 +83,11 @@
                         </div>
                         <div class="stat-card">
                             <span class="stat-value" id="sections-mastered">0</span>
-                            <span class="stat-label">Sections Mastered</span>
+                            <span class="stat-label">Topics Mastered</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-value" id="readiness-score">0%</span>
+                            <span class="stat-label">Certification Ready</span>
                         </div>
                     </div>
                 </div>
@@ -91,16 +102,185 @@
 
                 <div class="category-section">
                     <h2>Choose a Topic</h2>
-                    <p class="subtitle">Select a category to start a quiz based on LVVTA standards</p>
+                    <p class="subtitle">Select a category to study or take a quiz on LVVTA standards</p>
                     <div id="categories-grid" class="categories-grid">
                         <div class="loading">Loading categories...</div>
                     </div>
                 </div>
 
                 <div class="standards-section hidden" id="standards-section">
-                    <button id="back-to-categories" class="btn btn-secondary">Back to Topics</button>
+                    <button id="back-to-categories" class="btn btn-secondary btn-back">Back to Topics</button>
                     <h2 id="selected-category-title">Standards</h2>
                     <div id="standards-list" class="standards-list"></div>
+                </div>
+            </div>
+
+            <div id="learning-paths" class="learning-paths view-section hidden">
+                <h2>Certification Learning Paths</h2>
+                <p class="subtitle">Follow structured paths based on your target certification category</p>
+                
+                <div class="paths-grid">
+                    <div class="path-card" data-path="general">
+                        <div class="path-icon">1A-1D</div>
+                        <h3>General Motor Vehicles</h3>
+                        <p>Categories 1A, 1B, 1C, 1D - Light motor vehicles and modifications</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                    
+                    <div class="path-card" data-path="motorcycles">
+                        <div class="path-icon">2A-2C</div>
+                        <h3>Motorcycles & Trikes</h3>
+                        <p>Categories 2A, 2B, 2C - Two and three wheeled vehicles</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                    
+                    <div class="path-card" data-path="disability">
+                        <div class="path-icon">3A-3B</div>
+                        <h3>Disability Transportation</h3>
+                        <p>Categories 3A, 3B - Disability controls and transportation systems</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                    
+                    <div class="path-card" data-path="ors">
+                        <div class="path-icon">ORS</div>
+                        <h3>Operating Requirements</h3>
+                        <p>Chapters 3, 4, 5 - Certification categories, criteria, and appointment</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                    
+                    <div class="path-card" data-path="thresholds">
+                        <div class="path-icon">VIRM</div>
+                        <h3>Certification Thresholds</h3>
+                        <p>When is LVV certification required? Master the threshold decisions</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                    
+                    <div class="path-card" data-path="rhd">
+                        <div class="path-icon">RH</div>
+                        <h3>RHD Conversions</h3>
+                        <p>Right-hand drive conversion certification requirements</p>
+                        <div class="path-progress">
+                            <div class="path-progress-bar" style="width: 0%"></div>
+                        </div>
+                        <span class="path-status">0% Complete</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="scenarios" class="scenarios view-section hidden">
+                <h2>Certification Scenarios</h2>
+                <p class="subtitle">Practice real-world certification decisions</p>
+                
+                <div class="scenarios-list">
+                    <div class="scenario-card" data-scenario="threshold">
+                        <h3>Would You Certify This?</h3>
+                        <p>Practice determining when LVV certification is required for various modifications</p>
+                        <button class="btn btn-primary start-scenario-btn">Start Scenario</button>
+                    </div>
+                    
+                    <div class="scenario-card" data-scenario="inspection">
+                        <h3>Inspection Decisions</h3>
+                        <p>Review modification details and make pass/fail certification decisions</p>
+                        <button class="btn btn-primary start-scenario-btn">Start Scenario</button>
+                    </div>
+                    
+                    <div class="scenario-card" data-scenario="integrity">
+                        <h3>Integrity Challenges</h3>
+                        <p>Navigate ethical situations that test certifier integrity and independence</p>
+                        <button class="btn btn-primary start-scenario-btn">Start Scenario</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="readiness" class="readiness view-section hidden">
+                <h2>Certification Readiness Assessment</h2>
+                <p class="subtitle">Evaluate your readiness to apply as an LVV Certifier</p>
+                
+                <div class="readiness-grid">
+                    <div class="competency-card">
+                        <h3>Technical Skills</h3>
+                        <p>Deep understanding of vehicle systems and modifications</p>
+                        <div class="competency-meter">
+                            <div class="meter-fill" id="tech-skills-meter" style="width: 0%"></div>
+                        </div>
+                        <span class="competency-score">0%</span>
+                    </div>
+                    
+                    <div class="competency-card">
+                        <h3>Standards Knowledge</h3>
+                        <p>Understanding of LVV Standards and technical requirements</p>
+                        <div class="competency-meter">
+                            <div class="meter-fill" id="standards-meter" style="width: 0%"></div>
+                        </div>
+                        <span class="competency-score">0%</span>
+                    </div>
+                    
+                    <div class="competency-card">
+                        <h3>ORS Understanding</h3>
+                        <p>Knowledge of Operating Requirements Schedule</p>
+                        <div class="competency-meter">
+                            <div class="meter-fill" id="ors-meter" style="width: 0%"></div>
+                        </div>
+                        <span class="competency-score">0%</span>
+                    </div>
+                    
+                    <div class="competency-card">
+                        <h3>Threshold Decisions</h3>
+                        <p>Ability to determine when certification is required</p>
+                        <div class="competency-meter">
+                            <div class="meter-fill" id="threshold-meter" style="width: 0%"></div>
+                        </div>
+                        <span class="competency-score">0%</span>
+                    </div>
+                    
+                    <div class="competency-card">
+                        <h3>Scenario Performance</h3>
+                        <p>Real-world certification decision making</p>
+                        <div class="competency-meter">
+                            <div class="meter-fill" id="scenario-meter" style="width: 0%"></div>
+                        </div>
+                        <span class="competency-score">0%</span>
+                    </div>
+                    
+                    <div class="competency-card self-assess">
+                        <h3>Self-Assessment</h3>
+                        <p>Complete a self-assessment of the 7 core competencies</p>
+                        <button class="btn btn-secondary" id="self-assess-btn">Take Assessment</button>
+                    </div>
+                </div>
+                
+                <div class="overall-readiness">
+                    <h3>Overall Readiness</h3>
+                    <div class="readiness-circle">
+                        <span id="overall-readiness-score">0%</span>
+                    </div>
+                    <p id="readiness-message">Complete more training to build your certification readiness</p>
+                </div>
+            </div>
+
+            <div id="document-viewer" class="document-viewer hidden">
+                <div class="doc-header">
+                    <button id="back-from-doc" class="btn btn-secondary btn-back">Back</button>
+                    <h2 id="doc-title">Document</h2>
+                    <button id="start-quiz-from-doc" class="btn btn-primary">Take Quiz</button>
+                </div>
+                <div class="doc-content" id="doc-content">
+                    <div class="loading">Loading document...</div>
                 </div>
             </div>
 
@@ -152,6 +332,69 @@
                     <div class="complete-actions">
                         <button id="retry-quiz-btn" class="btn btn-secondary">Try Again</button>
                         <button id="back-to-dashboard-btn" class="btn btn-primary">Back to Dashboard</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="self-assessment-modal" class="modal hidden">
+                <div class="modal-content">
+                    <h2>Core Competency Self-Assessment</h2>
+                    <p>Rate yourself honestly on each of the 7 core competencies required for LVV Certifiers</p>
+                    
+                    <div class="assessment-form">
+                        <div class="assess-item">
+                            <label>High Level of Integrity</label>
+                            <p class="assess-desc">Making honest, safety-first decisions even under pressure</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="integrity">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Technically Skilled</label>
+                            <p class="assess-desc">Deep understanding of how vehicles and systems work</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="technical">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Vastly Experienced</label>
+                            <p class="assess-desc">10+ years continuous motor industry experience</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="experience">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Conscientious</label>
+                            <p class="assess-desc">Thorough, careful, detail-oriented work</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="conscientious">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Independent</label>
+                            <p class="assess-desc">Making sound judgments without external pressure</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="independent">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Reliable</label>
+                            <p class="assess-desc">Consistent, dependable service delivery</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="reliable">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                        
+                        <div class="assess-item">
+                            <label>Good People Skills</label>
+                            <p class="assess-desc">Effective communication with modifiers and officials</p>
+                            <input type="range" min="1" max="5" value="3" class="assess-slider" data-competency="people">
+                            <span class="assess-value">3/5</span>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" id="cancel-assessment">Cancel</button>
+                        <button class="btn btn-primary" id="save-assessment">Save Assessment</button>
                     </div>
                 </div>
             </div>
