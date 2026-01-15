@@ -74,8 +74,14 @@ def list_standards(db: Session = Depends(get_db)):
 
 @router.get("/categories")
 def list_categories(db: Session = Depends(get_db)):
+    from fastapi.responses import JSONResponse
     categories = db.query(Standard.category).distinct().all()
-    return [c[0] for c in categories if c[0]]
+    cat_list = [c[0] for c in categories if c[0]]
+    response = JSONResponse(content=cat_list)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @router.get("/by-category/{category}")
