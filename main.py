@@ -28,30 +28,37 @@ Base.metadata.create_all(bind=engine)
 def seed_initial_standards():
     db = SessionLocal()
     try:
-        count = db.query(Standard).count()
-        if count == 0:
-            print("Seeding initial LVVTA standards...")
-            initial_standards = [
-                {"standard_number": "LVVTA_STD_Brakes", "title": "Brakes", "category": "Brakes", "summary": "LVVTA standard covering braking systems"},
-                {"standard_number": "LVVTA_STD_Body_&_Chassis", "title": "Body & Chassis", "category": "Body & Structure", "summary": "LVVTA standard covering body and chassis modifications"},
-                {"standard_number": "LVVTA_STD_Engine_&_Drivetrain", "title": "Engine & Drivetrain", "category": "Engine & Drivetrain", "summary": "LVVTA standard covering engine and drivetrain"},
-                {"standard_number": "LVVTA_STD_Exhaust", "title": "Exhaust", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust systems"},
-                {"standard_number": "LVVTA_STD_Fuel_Systems", "title": "Fuel Systems", "category": "Fuel Systems", "summary": "LVVTA standard covering fuel systems"},
-                {"standard_number": "LVVTA_STD_Lighting", "title": "Lighting", "category": "Lighting & Electrical", "summary": "LVVTA standard covering lighting and electrical"},
-                {"standard_number": "LVVTA_STD_Suspension", "title": "Suspension", "category": "Suspension & Steering", "summary": "LVVTA standard covering suspension and steering"},
-                {"standard_number": "LVVTA_STD_Wheels_&_Tyres", "title": "Wheels & Tyres", "category": "Wheels & Tyres", "summary": "LVVTA standard covering wheels and tyres"},
-                {"standard_number": "ORS_Chapter_3", "title": "ORS Chapter 3 - Certification Categories", "category": "Certification Process", "summary": "LVV Certification categories and requirements"},
-                {"standard_number": "ORS_Chapter_4", "title": "ORS Chapter 4 - Certifier Criteria", "category": "Certification Process", "summary": "LVV Certifier background criteria"},
-                {"standard_number": "ORS_Chapter_5", "title": "ORS Chapter 5 - Application Process", "category": "Certification Process", "summary": "LVV Certifier application and appointment"},
-                {"standard_number": "LVVTA_General_Compliance", "title": "General Compliance Overview", "category": "General Compliance", "summary": "General compliance requirements for LVV certification"},
-            ]
-            for std_data in initial_standards:
+        initial_standards = [
+            {"standard_number": "LVVTA_STD_Brakes", "title": "Brakes", "category": "Brakes", "summary": "LVVTA standard covering braking systems"},
+            {"standard_number": "LVVTA_STD_Body_Chassis", "title": "Body & Chassis", "category": "Body & Structure", "summary": "LVVTA standard covering body and chassis modifications"},
+            {"standard_number": "LVVTA_STD_Engine_Drivetrain", "title": "Engine & Drivetrain", "category": "Engine & Drivetrain", "summary": "LVVTA standard covering engine and drivetrain"},
+            {"standard_number": "LVVTA_STD_Exhaust", "title": "Exhaust", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust systems"},
+            {"standard_number": "LVVTA_STD_Fuel_Systems", "title": "Fuel Systems", "category": "Fuel Systems", "summary": "LVVTA standard covering fuel systems"},
+            {"standard_number": "LVVTA_STD_Lighting", "title": "Lighting", "category": "Lighting & Electrical", "summary": "LVVTA standard covering lighting and electrical"},
+            {"standard_number": "LVVTA_STD_Suspension", "title": "Suspension", "category": "Suspension & Steering", "summary": "LVVTA standard covering suspension and steering"},
+            {"standard_number": "LVVTA_STD_Wheels_Tyres", "title": "Wheels & Tyres", "category": "Wheels & Tyres", "summary": "LVVTA standard covering wheels and tyres"},
+            {"standard_number": "ORS_Chapter_3", "title": "ORS Chapter 3 - Certification Categories", "category": "Certification Process", "summary": "LVV Certification categories and requirements"},
+            {"standard_number": "ORS_Chapter_4", "title": "ORS Chapter 4 - Certifier Criteria", "category": "Certification Process", "summary": "LVV Certifier background criteria"},
+            {"standard_number": "ORS_Chapter_5", "title": "ORS Chapter 5 - Application Process", "category": "Certification Process", "summary": "LVV Certifier application and appointment"},
+            {"standard_number": "LVVTA_General_Compliance", "title": "General Compliance Overview", "category": "General Compliance", "summary": "General compliance requirements for LVV certification"},
+        ]
+        
+        added_count = 0
+        for std_data in initial_standards:
+            exists = db.query(Standard).filter(
+                Standard.standard_number == std_data["standard_number"]
+            ).first()
+            if not exists:
                 std = Standard(**std_data)
                 db.add(std)
+                added_count += 1
+        
+        if added_count > 0:
             db.commit()
-            print(f"Seeded {len(initial_standards)} initial standards")
+            print(f"Seeded {added_count} missing standards")
         else:
-            print(f"Database has {count} standards - skipping seed")
+            count = db.query(Standard).count()
+            print(f"All standards present ({count} total)")
     except Exception as e:
         print(f"Error seeding standards: {e}")
         db.rollback()
