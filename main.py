@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from contextlib import asynccontextmanager
 import time
 from app.core.database import engine, Base, SessionLocal
 from app.api.auth import router as auth_router
@@ -17,15 +18,57 @@ from app.api.audio import router as audio_router
 from app.api.offline import router as offline_router
 from app.api.pdf_viewer import router as pdf_viewer_router
 from app.api.analytics import router as analytics_router
+from app.models.quiz import Standard
 
 from app.models import enhanced, analytics
 
 Base.metadata.create_all(bind=engine)
 
+
+def seed_initial_standards():
+    db = SessionLocal()
+    try:
+        count = db.query(Standard).count()
+        if count == 0:
+            print("Seeding initial LVVTA standards...")
+            initial_standards = [
+                {"standard_number": "LVVTA_STD_Brakes", "title": "Brakes", "category": "Brakes", "summary": "LVVTA standard covering braking systems"},
+                {"standard_number": "LVVTA_STD_Body_&_Chassis", "title": "Body & Chassis", "category": "Body & Structure", "summary": "LVVTA standard covering body and chassis modifications"},
+                {"standard_number": "LVVTA_STD_Engine_&_Drivetrain", "title": "Engine & Drivetrain", "category": "Engine & Drivetrain", "summary": "LVVTA standard covering engine and drivetrain"},
+                {"standard_number": "LVVTA_STD_Exhaust", "title": "Exhaust", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust systems"},
+                {"standard_number": "LVVTA_STD_Fuel_Systems", "title": "Fuel Systems", "category": "Fuel Systems", "summary": "LVVTA standard covering fuel systems"},
+                {"standard_number": "LVVTA_STD_Lighting", "title": "Lighting", "category": "Lighting & Electrical", "summary": "LVVTA standard covering lighting and electrical"},
+                {"standard_number": "LVVTA_STD_Suspension", "title": "Suspension", "category": "Suspension & Steering", "summary": "LVVTA standard covering suspension and steering"},
+                {"standard_number": "LVVTA_STD_Wheels_&_Tyres", "title": "Wheels & Tyres", "category": "Wheels & Tyres", "summary": "LVVTA standard covering wheels and tyres"},
+                {"standard_number": "ORS_Chapter_3", "title": "ORS Chapter 3 - Certification Categories", "category": "Certification Process", "summary": "LVV Certification categories and requirements"},
+                {"standard_number": "ORS_Chapter_4", "title": "ORS Chapter 4 - Certifier Criteria", "category": "Certification Process", "summary": "LVV Certifier background criteria"},
+                {"standard_number": "ORS_Chapter_5", "title": "ORS Chapter 5 - Application Process", "category": "Certification Process", "summary": "LVV Certifier application and appointment"},
+                {"standard_number": "LVVTA_General_Compliance", "title": "General Compliance Overview", "category": "General Compliance", "summary": "General compliance requirements for LVV certification"},
+            ]
+            for std_data in initial_standards:
+                std = Standard(**std_data)
+                db.add(std)
+            db.commit()
+            print(f"Seeded {len(initial_standards)} initial standards")
+        else:
+            print(f"Database has {count} standards - skipping seed")
+    except Exception as e:
+        print(f"Error seeding standards: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    seed_initial_standards()
+    yield
+
 app = FastAPI(
     title="LVV-Learn: LVV Certifier Training API",
     description="Production-ready API for LVV certification training with RAG-powered Q&A, quizzes, and section mastery tracking",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 app.add_middleware(
