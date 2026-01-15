@@ -221,14 +221,21 @@ async function loadCategories() {
         }
         
         grid.innerHTML = categories.map(cat => {
-            const safeCat = cat.replace(/'/g, "\\'").replace(/&/g, '&amp;');
+            const escapedCat = cat.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
             return `
-            <div class="category-card" onclick="selectCategory('${safeCat}')">
+            <div class="category-card" data-category="${escapedCat}">
                 <h3>${cat.replace(/&/g, '&amp;')}</h3>
                 <p>Study ${cat.toLowerCase().replace(/&/g, '&amp;')} standards</p>
             </div>
         `;
         }).join('');
+        
+        grid.querySelectorAll('.category-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const category = card.dataset.category.replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+                selectCategory(category);
+            });
+        });
     } catch (e) {
         console.error('loadCategories error:', e);
         grid.innerHTML = `<p>Failed to load categories. ${e.message || 'Please check your connection and try again.'}</p>`;
@@ -255,11 +262,10 @@ async function updateStandards() {
 }
 
 async function selectCategory(category) {
-    const decodedCategory = category.replace(/&amp;/g, '&');
     showLoading('Loading standards...');
     
     try {
-        const response = await fetch(`${API_BASE}/api/standards/by-category/${encodeURIComponent(decodedCategory)}`, {
+        const response = await fetch(`${API_BASE}/api/standards/by-category/${encodeURIComponent(category)}`, {
             method: 'GET',
             headers: { 'Accept': 'application/json' },
             cache: 'no-cache'
@@ -271,7 +277,7 @@ async function selectCategory(category) {
         
         const standards = await response.json();
         
-        document.getElementById('selected-category-title').textContent = decodedCategory;
+        document.getElementById('selected-category-title').textContent = category;
         
         const list = document.getElementById('standards-list');
         list.innerHTML = standards.map(std => `
