@@ -80,11 +80,11 @@ A production-ready FastAPI application for LVV (Low Volume Vehicle) certificatio
 
 ## Tech Stack
 - **Backend**: FastAPI, Python 3.11
-- **Database**: PostgreSQL (Replit-managed)
+- **Database**: PostgreSQL
 - **Vector DB**: ChromaDB (persistent)
-- **AI**: OpenAI via Replit AI Integrations (gpt-audio-mini for TTS)
+- **AI**: OpenAI (gpt-audio-mini for TTS)
 - **Auth**: JWT with python-jose, passlib/bcrypt
-- **Scraping**: BeautifulSoup4, requests, PyPDF2
+- **Scraping**: BeautifulSoup4, requests, pypdf
 
 ## API Endpoints
 
@@ -196,8 +196,8 @@ The app emphasizes the soft skills required for LVV Certifiers:
 
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string
-- `AI_INTEGRATIONS_OPENAI_API_KEY` - OpenAI API key (managed by Replit)
-- `AI_INTEGRATIONS_OPENAI_BASE_URL` - OpenAI base URL (managed by Replit)
+- `OPENAI_API_KEY` - OpenAI API key (falls back to `AI_INTEGRATIONS_OPENAI_API_KEY` if set)
+- `OPENAI_BASE_URL` - OpenAI base URL (optional; falls back to `AI_INTEGRATIONS_OPENAI_BASE_URL`, else OpenAI default)
 - `SECRET_KEY` - JWT signing key
 
 ## Running the App

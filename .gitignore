@@ -53,3 +53,7 @@ htmlcov/
 screenshots/
 _demo_*.py
 _demo*.db
+
+# Platform/agent state (unused)
+.config/
+.local/

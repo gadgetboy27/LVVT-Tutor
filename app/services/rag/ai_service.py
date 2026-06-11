@@ -14,8 +14,8 @@ def _get_client() -> OpenAI:
     global _client
     if _client is None:
         _client = OpenAI(
-            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
+            api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+            base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
         )
     return _client
 
