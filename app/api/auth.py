@@ -2,7 +2,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from app.core.database import get_db
 from app.core.config import settings
 from app.models.user import User
@@ -27,9 +27,8 @@ class UserResponse(BaseModel):
     email: str
     full_name: str | None
     is_active: bool
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):

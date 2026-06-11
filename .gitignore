@@ -48,3 +48,8 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# demo/verification artifacts
+screenshots/
+_demo_*.py
+_demo*.db

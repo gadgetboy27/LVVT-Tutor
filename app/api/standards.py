@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.models.quiz import Standard, StandardSection
 from app.models.user import User
 from app.services.auth.jwt import get_current_user
@@ -28,8 +28,7 @@ class StandardResponse(BaseModel):
     pdf_url: Optional[str]
     is_processed: bool
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StandardDetailResponse(BaseModel):
@@ -41,8 +40,7 @@ class StandardDetailResponse(BaseModel):
     pdf_url: Optional[str]
     sections: List[dict]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class QuestionRequest(BaseModel):
@@ -169,18 +167,33 @@ def get_standard_detail(
 
 @router.post("/update")
 def update_standards(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks
 ):
-    background_tasks.add_task(sync_standards_background, db)
+    background_tasks.add_task(sync_standards_background)
     return {"message": "Standards update started in background"}
 
 
-def sync_standards_background(db: Session):
+@router.post("/backfill-pdf-urls")
+def backfill_pdf_urls_endpoint():
+    from app.services.rag.pdf_indexer import backfill_pdf_urls
+    return backfill_pdf_urls()
+
+
+def sync_standards_background():
+    # The request-scoped session from get_db() is closed once the response is
+    # sent, so a background task must own its own session and close it.
+    db = SessionLocal()
+    try:
+        _sync_standards(db)
+    finally:
+        db.close()
+
+
+def _sync_standards(db: Session):
     scraped = scrape_lvvta_standards()
     chroma_client = get_chroma_client()
     collection = get_or_create_collection(chroma_client)
-    
+
     for std_data in scraped:
         existing = db.query(Standard).filter(
             Standard.standard_number == std_data['standard_number']

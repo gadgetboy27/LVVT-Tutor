@@ -7,6 +7,8 @@ let selectedAnswer = null;
 let quizAnswers = [];
 let currentStandard = null;
 let currentView = 'dashboard';
+let currentTeachStandard = null;
+let currentTeachTree = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -51,6 +53,11 @@ function setupEventListeners() {
     
     document.getElementById('back-from-doc').addEventListener('click', closeDocViewer);
     document.getElementById('start-quiz-from-doc').addEventListener('click', startQuizFromDoc);
+
+    document.getElementById('back-from-teach').addEventListener('click', closeTeachInterface);
+    document.getElementById('teach-quiz-btn').addEventListener('click', () => {
+        if (currentTeachStandard) startQuiz(currentTeachStandard.number, currentTeachStandard.title);
+    });
     
     document.querySelectorAll('.path-card').forEach(card => {
         card.addEventListener('click', () => selectLearningPath(card.dataset.path));
@@ -139,8 +146,9 @@ async function showMainContent() {
     document.getElementById('user-info').classList.remove('hidden');
     document.getElementById('quiz-container').classList.add('hidden');
     document.getElementById('document-viewer').classList.add('hidden');
+    document.getElementById('teach-interface').classList.add('hidden');
     switchView('dashboard');
-    
+
     await Promise.all([
         loadProgress(),
         loadCategories(),
@@ -162,7 +170,8 @@ function switchView(view) {
     document.getElementById(view).classList.remove('hidden');
     document.getElementById('quiz-container').classList.add('hidden');
     document.getElementById('document-viewer').classList.add('hidden');
-    
+    document.getElementById('teach-interface').classList.add('hidden');
+
     if (view === 'readiness') {
         updateReadinessScores();
     }
@@ -286,6 +295,7 @@ async function selectCategory(category) {
                 <p class="standard-summary">${std.summary || 'LVVTA standard document'}</p>
                 <div class="standard-actions">
                     <button class="btn btn-read" onclick="viewDocument('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Read Document</button>
+                    <button class="btn btn-secondary" onclick="startTeachBack('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Teach It</button>
                     <button class="btn btn-primary" onclick="startQuiz('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Take Quiz</button>
                 </div>
             </div>
@@ -362,6 +372,126 @@ function closeDocViewer() {
 function startQuizFromDoc() {
     if (currentStandard) {
         startQuiz(currentStandard.number, currentStandard.title);
+    }
+}
+
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function startTeachBack(standardNumber, title) {
+    showLoading('Loading teach-back questions...');
+    currentTeachStandard = { number: standardNumber, title: title };
+
+    try {
+        const response = await fetch(`${API_BASE}/api/teach/tree/${encodeURIComponent(standardNumber)}`);
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        currentTeachTree = await response.json();
+
+        renderTeachAspects(currentTeachTree);
+
+        document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+        document.getElementById('document-viewer').classList.add('hidden');
+        document.getElementById('quiz-container').classList.add('hidden');
+        document.getElementById('teach-interface').classList.remove('hidden');
+    } catch (e) {
+        alert('Failed to load teach-back: ' + e.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderTeachAspects(data) {
+    document.getElementById('teach-title').textContent = `Teach It: ${data.title || ''}`;
+    const container = document.getElementById('teach-aspects');
+    const aspects = (data && data.aspects) || [];
+
+    if (!aspects.length) {
+        container.innerHTML = '<p>No teach-back questions are available for this standard yet. Try "Read Document" first.</p>';
+        return;
+    }
+
+    container.innerHTML = aspects.map((a, i) => `
+        <div class="teach-aspect" data-index="${i}">
+            <h4>${escapeHtml(a.aspect || 'Explain this')}</h4>
+            <p class="teach-prompt">${escapeHtml(a.prompt || '')}</p>
+            <textarea class="teach-input" data-index="${i}" rows="4" placeholder="Explain in your own words..."></textarea>
+            <button class="btn btn-primary teach-submit" data-index="${i}">Check My Explanation</button>
+            <div class="teach-eval hidden" data-index="${i}"></div>
+        </div>
+    `).join('');
+
+    container.querySelectorAll('.teach-submit').forEach(btn => {
+        btn.addEventListener('click', () => submitTeachback(parseInt(btn.dataset.index, 10)));
+    });
+}
+
+async function submitTeachback(index) {
+    const aspect = currentTeachTree.aspects[index];
+    const textarea = document.querySelector(`.teach-input[data-index="${index}"]`);
+    const explanation = (textarea.value || '').trim();
+    if (!explanation) {
+        alert('Please write your explanation first');
+        return;
+    }
+
+    const evalDiv = document.querySelector(`.teach-eval[data-index="${index}"]`);
+    evalDiv.classList.remove('hidden');
+    evalDiv.innerHTML = '<p class="loading">Checking your explanation against the standard...</p>';
+
+    try {
+        const response = await fetch(`${API_BASE}/api/teach/evaluate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                standard_number: currentTeachStandard.number,
+                topic: aspect.aspect || currentTeachStandard.title,
+                explanation: explanation,
+                key_points: aspect.key_points || []
+            })
+        });
+        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        renderTeachEvaluation(evalDiv, await response.json());
+    } catch (e) {
+        evalDiv.innerHTML = `<p class="error-message">Failed to check explanation: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function renderTeachEvaluation(el, r) {
+    const score = r.accuracy_score || 0;
+    const cls = r.is_accurate ? 'correct' : (score >= 40 ? 'partial' : 'incorrect');
+    const list = (arr) => (arr && arr.length)
+        ? `<ul>${arr.map(x => `<li>${escapeHtml(String(x))}</li>`).join('')}</ul>`
+        : '<p class="muted">None</p>';
+
+    const misconceptions = (r.misconceptions && r.misconceptions.length)
+        ? `<div><strong>Misconceptions</strong>${list(r.misconceptions)}</div>` : '';
+    const insufficient = r.insufficient_context ? ' · limited source coverage' : '';
+    const offline = r.method === 'lexical-fallback' ? ' · offline check' : '';
+    const citation = (r.citations && r.citations.length) ? `Source: ${escapeHtml(r.citations.join(', '))}` : '';
+
+    el.innerHTML = `
+        <div class="teach-score ${cls}">${score}% accurate${insufficient}</div>
+        <p class="teach-feedback">${escapeHtml(r.feedback || '')}</p>
+        <div class="teach-cols">
+            <div><strong>Covered</strong>${list(r.covered_points)}</div>
+            <div><strong>Gaps</strong>${list(r.gaps)}</div>
+            ${misconceptions}
+        </div>
+        <p class="citation">${citation}${offline}</p>
+    `;
+}
+
+function closeTeachInterface() {
+    document.getElementById('teach-interface').classList.add('hidden');
+    switchView('dashboard');
+
+    if (document.getElementById('standards-section').innerHTML.trim()) {
+        document.querySelector('.category-section').classList.add('hidden');
+        document.getElementById('standards-section').classList.remove('hidden');
     }
 }
 

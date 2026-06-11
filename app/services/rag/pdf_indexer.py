@@ -2,7 +2,7 @@ import os
 import requests
 import hashlib
 from typing import List, Dict, Optional
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from io import BytesIO
 from app.services.rag.vector_store import get_chroma_client, get_or_create_collection, add_documents
 from app.core.database import SessionLocal
@@ -103,6 +103,114 @@ def index_pdf_to_vectordb(standard_number: str, title: str, pdf_url: str, catego
         "chunks_indexed": len(chunks),
         "text_length": len(text)
     }
+
+def backfill_pdf_urls() -> Dict:
+    """Populate Standard.pdf_url from ChromaDB chunk metadata.
+
+    The indexer stores `pdf_url` on every chunk's metadata, so any standard that
+    was indexed but is missing its pdf_url (e.g. the lightweight seeded rows) can
+    recover it here. This is what lets the PDF viewer routes resolve a cached
+    file (cache names are md5(pdf_url)[:8].pdf)."""
+    db = SessionLocal()
+    result = {"checked": 0, "updated": 0, "unresolved": []}
+    try:
+        client = get_chroma_client()
+        collection = get_or_create_collection(client)
+
+        for std in db.query(Standard).all():
+            if std.pdf_url:
+                continue
+            result["checked"] += 1
+            try:
+                records = collection.get(
+                    where={"standard_number": std.standard_number},
+                    include=["metadatas"],
+                    limit=1,
+                )
+            except Exception:
+                records = None
+
+            metadatas = (records or {}).get("metadatas") or []
+            pdf_url = (metadatas[0] or {}).get("pdf_url") if metadatas else None
+
+            if pdf_url:
+                std.pdf_url = pdf_url
+                result["updated"] += 1
+            else:
+                result["unresolved"].append(std.standard_number)
+
+        if result["updated"]:
+            db.commit()
+        else:
+            db.rollback()
+    except Exception as e:
+        result["error"] = str(e)
+        db.rollback()
+    finally:
+        db.close()
+    return result
+
+def seed_standards_from_chroma() -> Dict:
+    """Create/refresh a Standard row for every standard indexed in ChromaDB.
+
+    The seed list in main.py is a small hand-picked subset; this pulls the full
+    indexed corpus (title, category, pdf_url all live in the chunk metadata) so
+    every category and learning path is populated, and existing rows get their
+    pdf_url / category backfilled."""
+    db = SessionLocal()
+    result = {"created": 0, "updated": 0}
+    try:
+        client = get_chroma_client()
+        collection = get_or_create_collection(client)
+
+        records = collection.get(include=["metadatas"])
+        metadatas = records.get("metadatas") or []
+
+        # Collapse the per-chunk metadata down to one entry per standard.
+        by_standard: Dict[str, Dict] = {}
+        for meta in metadatas:
+            if not meta:
+                continue
+            sn = meta.get("standard_number")
+            if sn and sn not in by_standard:
+                by_standard[sn] = meta
+
+        for sn, meta in by_standard.items():
+            title = meta.get("title") or sn
+            category = meta.get("category") or "Uncategorized"
+            pdf_url = meta.get("pdf_url")
+
+            existing = db.query(Standard).filter(Standard.standard_number == sn).first()
+            if existing:
+                changed = False
+                if not existing.pdf_url and pdf_url:
+                    existing.pdf_url = pdf_url
+                    changed = True
+                if (not existing.category or existing.category == "Uncategorized") and category:
+                    existing.category = category
+                    changed = True
+                if changed:
+                    result["updated"] += 1
+            else:
+                db.add(Standard(
+                    standard_number=sn,
+                    title=title,
+                    category=category,
+                    pdf_url=pdf_url,
+                    is_processed=True,
+                ))
+                result["created"] += 1
+
+        if result["created"] or result["updated"]:
+            db.commit()
+        else:
+            db.rollback()
+    except Exception as e:
+        result["error"] = str(e)
+        db.rollback()
+    finally:
+        db.close()
+    return result
 
 def index_all_standards() -> Dict:
     db = SessionLocal()

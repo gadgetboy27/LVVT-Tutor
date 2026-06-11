@@ -1,12 +1,23 @@
 import os
 import json
+import re
 from openai import OpenAI
 from typing import List, Dict, Any
 
-client = OpenAI(
-    api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-    base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
-)
+_client = None
+
+
+def _get_client() -> OpenAI:
+    # Build the client lazily so the app can import and serve the non-AI paths
+    # (deterministic quiz fallback, PDF routes, standards listing) even when no
+    # OpenAI key is configured. Without this, a missing key fails app import.
+    global _client
+    if _client is None:
+        _client = OpenAI(
+            api_key=os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
+            base_url=os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
+        )
+    return _client
 
 
 def generate_answer_with_citations(question: str, context_chunks: List[Dict]) -> str:
@@ -34,7 +45,7 @@ QUESTION: {question}
 
 Provide a clear, professional answer with specific Standard citations:"""
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -75,7 +86,7 @@ Include a mix of:
 
 Make questions practical and relevant to certification work."""
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -122,7 +133,7 @@ Respond with a JSON object containing:
 
 Focus on the technical requirements and certification processes."""
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -163,7 +174,7 @@ Provide a detailed explanation that:
 
 Format your response clearly with examples."""
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -202,7 +213,7 @@ Respond with a JSON object:
 Be fair but rigorous - this is professional certification training."""
 
     try:
-        response = client.chat.completions.create(
+        response = _get_client().chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -256,7 +267,7 @@ Return a JSON array:
 
 Questions must test deep understanding required for professional LVV certification."""
 
-    response = client.chat.completions.create(
+    response = _get_client().chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
@@ -265,7 +276,7 @@ Questions must test deep understanding required for professional LVV certificati
         temperature=0.7,
         max_tokens=2000
     )
-    
+
     try:
         content = response.choices[0].message.content
         start = content.find('[')
@@ -274,5 +285,194 @@ Questions must test deep understanding required for professional LVV certificati
             return json.loads(content[start:end])
     except Exception:
         pass
-    
+
     return []
+
+
+# --------------------------------------------------------------------------- #
+# Teach-back (Feynman method): the trainee explains a standard in their own
+# words; the AI judges accuracy STRICTLY against retrieved source excerpts so it
+# cannot reward fluent-but-wrong answers or hallucinate requirements.
+# --------------------------------------------------------------------------- #
+_TEACH_STOPWORDS = {
+    "which", "their", "there", "these", "those", "about", "would", "could",
+    "should", "where", "while", "being", "other", "first", "after", "before",
+    "standard", "section", "requirements", "requirement", "vehicle", "must",
+    "shall", "lvvta", "lvv", "where", "without",
+}
+
+
+def _key_terms(text: str, limit: int = 12) -> List[str]:
+    """Distinctive terms drawn straight from the source text (never invented)."""
+    words = re.findall(r"[a-zA-Z][a-zA-Z\-]{4,}", (text or "").lower())
+    freq: Dict[str, int] = {}
+    for w in words:
+        if w in _TEACH_STOPWORDS:
+            continue
+        freq[w] = freq.get(w, 0) + 1
+    ranked = sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [w for w, _ in ranked[:limit]]
+
+
+def evaluate_teachback(topic: str, learner_explanation: str, context: str,
+                       standard_number: str, key_points: List[str] = None) -> Dict[str, Any]:
+    """Grade a trainee's own-words explanation against the SOURCE EXCERPTS only.
+
+    Anti-hallucination contract: the model is told to use only the provided
+    excerpts and to flag insufficient context rather than guess. If the AI is
+    unavailable, the deterministic fallback scores purely on lexical coverage of
+    source-derived key terms, so it can never invent requirements."""
+    has_context = bool(context and context.strip())
+    has_explanation = bool(learner_explanation and learner_explanation.strip())
+
+    if has_context and has_explanation:
+        system_prompt = (
+            "You are an LVV certification examiner using the Feynman teach-back method. "
+            "Assess the trainee's explanation ONLY against the SOURCE EXCERPTS provided. "
+            "Do NOT use any outside or prior knowledge. If the excerpts do not contain "
+            "enough information to verify a point, set insufficient_context true and do "
+            "not guess. Never invent requirements, numbers, or clauses not in the excerpts."
+        )
+        kp = ("\nKEY POINTS A CORRECT EXPLANATION SHOULD COVER:\n- " + "\n- ".join(key_points)) if key_points else ""
+        user_prompt = f"""TOPIC: {topic}
+STANDARD: {standard_number}
+
+SOURCE EXCERPTS (the only ground truth you may use):
+\"\"\"
+{context}
+\"\"\"{kp}
+
+TRAINEE'S OWN-WORDS EXPLANATION:
+\"\"\"
+{learner_explanation}
+\"\"\"
+
+Compare the explanation to the SOURCE EXCERPTS and respond with a JSON object:
+{{
+  "accuracy_score": 0-100,
+  "is_accurate": true/false,
+  "covered_points": ["points the trainee got right, each grounded in the excerpts"],
+  "gaps": ["key points from the excerpts the trainee missed"],
+  "misconceptions": ["statements the trainee made that contradict the excerpts"],
+  "feedback": "2-4 sentences of constructive, grounded feedback",
+  "insufficient_context": true/false
+}}
+
+Only include items you can support with the SOURCE EXCERPTS."""
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.1,
+                max_tokens=700,
+            )
+            content = response.choices[0].message.content
+            start = content.find('{')
+            end = content.rfind('}') + 1
+            if start != -1 and end > start:
+                result = json.loads(content[start:end])
+                result.setdefault("covered_points", [])
+                result.setdefault("gaps", [])
+                result.setdefault("misconceptions", [])
+                result.setdefault("feedback", "")
+                result.setdefault("insufficient_context", False)
+                result["accuracy_score"] = max(0, min(100, int(result.get("accuracy_score", 0))))
+                result["is_accurate"] = bool(result.get("is_accurate", result["accuracy_score"] >= 70))
+                result["citations"] = [standard_number]
+                result["method"] = "ai"
+                return result
+        except Exception:
+            pass
+
+    # Deterministic, grounded fallback: lexical coverage of source key terms.
+    expected = (_key_terms(" ".join(key_points)) if key_points else _key_terms(context))
+    explanation_l = (learner_explanation or "").lower()
+    covered = [t for t in expected if t in explanation_l]
+    gaps = [t for t in expected if t not in explanation_l]
+    score = int(len(covered) / len(expected) * 100) if expected else 0
+    return {
+        "accuracy_score": score,
+        "is_accurate": score >= 70,
+        "covered_points": covered,
+        "gaps": gaps,
+        "misconceptions": [],
+        "feedback": (
+            f"Automated lexical check against the standard's key terms "
+            f"({len(covered)}/{len(expected)} covered). Connect the AI service for a full grounded assessment."
+            if expected else
+            "No source content was available to grade this explanation."
+        ),
+        "citations": [standard_number],
+        "insufficient_context": not has_context,
+        "method": "lexical-fallback",
+    }
+
+
+def build_teach_tree(standard_number: str, title: str, context: str,
+                     max_aspects: int = 5) -> List[Dict[str, Any]]:
+    """Break a standard into teach-back aspects, each a prompt for the trainee to
+    explain in their own words. Grounded in the source; the deterministic
+    fallback derives aspects from the source text without inventing topics."""
+    if context and context.strip():
+        system_prompt = (
+            "You design teach-back prompts for LVV certification training. Using ONLY "
+            "the provided source excerpts, identify the key processes/requirements a "
+            "trainee should be able to explain. Do not invent topics not in the excerpts."
+        )
+        user_prompt = f"""STANDARD: {standard_number} - {title}
+
+SOURCE EXCERPTS:
+\"\"\"
+{context}
+\"\"\"
+
+Produce up to {max_aspects} teach-back aspects as a JSON array:
+[
+  {{
+    "aspect": "short name of the process/requirement",
+    "prompt": "In your own words, explain ... (ask WHY/HOW this works and what it protects)",
+    "key_points": ["specific points a correct explanation must mention, grounded in the excerpts"]
+  }}
+]
+
+Only use information present in the SOURCE EXCERPTS."""
+        try:
+            response = _get_client().chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.4,
+                max_tokens=1200,
+            )
+            content = response.choices[0].message.content
+            start = content.find('[')
+            end = content.rfind(']') + 1
+            if start != -1 and end > start:
+                aspects = json.loads(content[start:end])
+                if aspects:
+                    return aspects[:max_aspects]
+        except Exception:
+            pass
+
+    # Fallback: derive aspects from notable source sentences (no invented topics).
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", context or "") if len(s.strip()) > 40]
+    aspects: List[Dict[str, Any]] = []
+    for sent in sentences[:max_aspects]:
+        terms = _key_terms(sent, limit=5)
+        aspects.append({
+            "aspect": (terms[0].title() if terms else "Key Requirement"),
+            "prompt": f"In your own words, explain the purpose of this requirement from {standard_number}: \"{sent[:160]}\"",
+            "key_points": terms,
+        })
+    if not aspects:
+        aspects.append({
+            "aspect": title or standard_number,
+            "prompt": f"In your own words, explain what the {title or standard_number} standard is for and who it protects.",
+            "key_points": _key_terms(f"{title} {context}", limit=5),
+        })
+    return aspects

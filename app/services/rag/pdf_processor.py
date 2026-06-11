@@ -1,6 +1,6 @@
 import io
 import requests
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from typing import List, Dict, Tuple
 import hashlib
 

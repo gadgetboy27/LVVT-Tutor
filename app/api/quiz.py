@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from app.core.database import get_db
 from app.models.quiz import Standard, QuizResult
@@ -63,9 +63,72 @@ class QuizResultResponse(BaseModel):
     score: float
     total_questions: int
     correct_answers: int
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+def _fallback_quiz_questions(standard: Standard, db: Session, num_questions: int) -> List[QuizQuestion]:
+    """Deterministic, non-AI quiz so "Take Quiz" never dead-ends when the vector
+    store has no content for a standard or the AI service is unavailable. Builds
+    questions from the standard's own metadata and its sibling standards."""
+    questions: List[QuizQuestion] = []
+    topic = standard.category or "this area"
+
+    # MCQ: identify the standard's subject area among the real categories.
+    categories = [c[0] for c in db.query(Standard.category).distinct().all() if c[0]]
+    distractor_cats = [c for c in categories if c != standard.category][:3]
+    if standard.category and distractor_cats:
+        questions.append(QuizQuestion(
+            question=f"Which subject area does the '{standard.title}' standard belong to?",
+            options=sorted(distractor_cats + [standard.category]),
+            correct_answer=standard.category,
+            explanation=f"'{standard.title}' is categorised under {standard.category}.",
+            difficulty="easy",
+        ))
+
+    # MCQ: pick the correct standard title among siblings.
+    other_titles = [
+        t[0] for t in db.query(Standard.title).filter(Standard.id != standard.id).distinct().all()
+        if t[0] and t[0] != standard.title
+    ][:3]
+    if other_titles:
+        questions.append(QuizQuestion(
+            question=f"Which LVV standard covers {topic}?",
+            options=sorted(other_titles + [standard.title]),
+            correct_answer=standard.title,
+            explanation=f"{standard.title} is the LVV standard for {topic}.",
+            difficulty="easy",
+        ))
+
+    # Short-answer recall prompts fill any remaining slots (the frontend renders
+    # these as free-text and grades them with its own substring fallback).
+    reference = standard.summary or f"the requirements of the {standard.title} standard"
+    prompts = [
+        f"Describe a key requirement covered by the '{standard.title}' standard.",
+        f"Why is the '{standard.title}' standard important for vehicle safety?",
+        f"What might cause a modification to fail an inspection under '{standard.title}'?",
+        f"Who is responsible for ensuring compliance with the '{standard.title}' standard?",
+    ]
+    i = 0
+    while len(questions) < num_questions and i < len(prompts):
+        questions.append(QuizQuestion(
+            question=prompts[i],
+            options=[],
+            correct_answer=reference,
+            explanation=f"Refer to the {standard.title} document. {reference}",
+            difficulty="medium",
+            type="short",
+        ))
+        i += 1
+
+    return questions[:num_questions] if questions else [QuizQuestion(
+        question=f"Describe what the '{standard.title}' standard covers.",
+        options=[],
+        correct_answer=standard.summary or standard.title,
+        explanation=f"Refer to the {standard.title} document.",
+        difficulty="medium",
+        type="short",
+    )]
 
 
 @router.post("/generate", response_model=QuizGenerateResponse)
@@ -76,41 +139,40 @@ def generate_quiz(
     standard = db.query(Standard).filter(
         Standard.standard_number == request.standard_number
     ).first()
-    
+
     if not standard:
         raise HTTPException(status_code=404, detail="Standard not found")
-    
+
     chroma_client = get_chroma_client()
     collection = get_or_create_collection(chroma_client)
-    
+
+    # Scope retrieval to THIS standard's chunks so questions are on-topic.
     results = query_documents(
-        collection, 
-        f"LVV Standard {request.standard_number} requirements specifications", 
-        n_results=10
+        collection,
+        f"LVV Standard {request.standard_number} requirements specifications",
+        n_results=10,
+        where={"standard_number": request.standard_number},
     )
-    
-    if not results['documents'] or not results['documents'][0]:
-        raise HTTPException(
-            status_code=404,
-            detail="No content found for this standard. Please ensure it has been indexed."
-        )
-    
-    context = "\n\n".join(results['documents'][0])
-    
-    questions_data = generate_quiz_questions(
-        context, 
-        request.standard_number, 
-        request.num_questions
-    )
-    
-    if not questions_data:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate quiz questions"
-        )
-    
-    questions = [QuizQuestion(**q) for q in questions_data]
-    
+
+    questions = None
+    documents = results.get('documents') or []
+    if documents and documents[0]:
+        context = "\n\n".join(documents[0])
+        try:
+            questions_data = generate_quiz_questions(
+                context,
+                request.standard_number,
+                request.num_questions
+            )
+            if questions_data:
+                questions = [QuizQuestion(**q) for q in questions_data]
+        except Exception as e:
+            print(f"AI quiz generation failed for {request.standard_number}: {e}")
+
+    # No indexed content or the AI service failed -> deterministic fallback.
+    if not questions:
+        questions = _fallback_quiz_questions(standard, db, request.num_questions)
+
     return QuizGenerateResponse(
         standard_number=request.standard_number,
         questions=questions

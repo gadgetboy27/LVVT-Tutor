@@ -18,6 +18,7 @@ from app.api.audio import router as audio_router
 from app.api.offline import router as offline_router
 from app.api.pdf_viewer import router as pdf_viewer_router
 from app.api.analytics import router as analytics_router
+from app.api.teach import router as teach_router
 from app.models.quiz import Standard
 
 from app.models import enhanced, analytics
@@ -28,19 +29,22 @@ Base.metadata.create_all(bind=engine)
 def seed_initial_standards():
     db = SessionLocal()
     try:
+        # standard_number values must match the names indexed in ChromaDB so the
+        # PDF viewer routes (and backfill_pdf_urls) can resolve each standard's
+        # cached PDF. Keep these aligned with the indexed corpus.
         initial_standards = [
-            {"standard_number": "LVVTA_STD_Brakes", "title": "Brakes", "category": "Brakes", "summary": "LVVTA standard covering braking systems"},
-            {"standard_number": "LVVTA_STD_Body_Chassis", "title": "Body & Chassis", "category": "Body & Structure", "summary": "LVVTA standard covering body and chassis modifications"},
-            {"standard_number": "LVVTA_STD_Engine_Drivetrain", "title": "Engine & Drivetrain", "category": "Engine & Drivetrain", "summary": "LVVTA standard covering engine and drivetrain"},
-            {"standard_number": "LVVTA_STD_Exhaust", "title": "Exhaust", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust systems"},
+            {"standard_number": "LVVTA_STD_Braking_Systems", "title": "Braking Systems", "category": "Brakes", "summary": "LVVTA standard covering braking systems"},
+            {"standard_number": "LVVTA_STD_Chassis_Modification_Construction", "title": "Chassis Modification & Construction", "category": "Body & Structure", "summary": "LVVTA standard covering chassis modification and construction"},
+            {"standard_number": "LVVTA_STD_Engine_&_Drive-train_Conversions", "title": "Engine & Drive-train Conversions", "category": "Engine & Drivetrain", "summary": "LVVTA standard covering engine and drive-train conversions"},
+            {"standard_number": "LVVTA_STD_Exhaust_Noise_Emissions", "title": "Exhaust Noise Emissions", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust noise emissions"},
+            {"standard_number": "LVVTA_STD_Exhaust_Gas_Emissions", "title": "Exhaust Gas Emissions", "category": "Exhaust & Emissions", "summary": "LVVTA standard covering exhaust gas emissions"},
             {"standard_number": "LVVTA_STD_Fuel_Systems", "title": "Fuel Systems", "category": "Fuel Systems", "summary": "LVVTA standard covering fuel systems"},
-            {"standard_number": "LVVTA_STD_Lighting", "title": "Lighting", "category": "Lighting & Electrical", "summary": "LVVTA standard covering lighting and electrical"},
-            {"standard_number": "LVVTA_STD_Suspension", "title": "Suspension", "category": "Suspension & Steering", "summary": "LVVTA standard covering suspension and steering"},
-            {"standard_number": "LVVTA_STD_Wheels_Tyres", "title": "Wheels & Tyres", "category": "Wheels & Tyres", "summary": "LVVTA standard covering wheels and tyres"},
+            {"standard_number": "LVVTA_STD_Lighting_Equipment", "title": "Lighting Equipment", "category": "Lighting & Electrical", "summary": "LVVTA standard covering lighting equipment"},
+            {"standard_number": "LVVTA_STD_Suspension_Systems", "title": "Suspension Systems", "category": "Suspension & Steering", "summary": "LVVTA standard covering suspension systems"},
+            {"standard_number": "LVVTA_STD_Wheels_&_Tyres", "title": "Wheels & Tyres", "category": "Wheels & Tyres", "summary": "LVVTA standard covering wheels and tyres"},
             {"standard_number": "ORS_Chapter_3", "title": "ORS Chapter 3 - Certification Categories", "category": "Certification Process", "summary": "LVV Certification categories and requirements"},
             {"standard_number": "ORS_Chapter_4", "title": "ORS Chapter 4 - Certifier Criteria", "category": "Certification Process", "summary": "LVV Certifier background criteria"},
             {"standard_number": "ORS_Chapter_5", "title": "ORS Chapter 5 - Application Process", "category": "Certification Process", "summary": "LVV Certifier application and appointment"},
-            {"standard_number": "LVVTA_General_Compliance", "title": "General Compliance Overview", "category": "General Compliance", "summary": "General compliance requirements for LVV certification"},
         ]
         
         added_count = 0
@@ -69,6 +73,19 @@ def seed_initial_standards():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_initial_standards()
+    try:
+        from app.services.rag.pdf_indexer import seed_standards_from_chroma, backfill_pdf_urls
+        # Pull the full indexed corpus into the DB (title/category/pdf_url) so
+        # every category and learning path is populated.
+        seeded = seed_standards_from_chroma()
+        if seeded.get("created") or seeded.get("updated"):
+            print(f"Seeded {seeded.get('created', 0)} and updated {seeded.get('updated', 0)} standards from ChromaDB")
+        # Safety net for any remaining rows missing a pdf_url.
+        result = backfill_pdf_urls()
+        if result.get("updated"):
+            print(f"Backfilled pdf_url for {result['updated']} standards from ChromaDB")
+    except Exception as e:
+        print(f"Standard seeding from ChromaDB skipped: {e}")
     yield
 
 app = FastAPI(
@@ -101,6 +118,7 @@ app.include_router(audio_router)
 app.include_router(offline_router)
 app.include_router(pdf_viewer_router)
 app.include_router(analytics_router)
+app.include_router(teach_router)
 
 
 @app.middleware("http")
@@ -145,7 +163,7 @@ async def track_requests(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
-    return templates.TemplateResponse("quiz.html", {"request": request})
+    return templates.TemplateResponse(request, "quiz.html")
 
 
 @app.get("/health")
