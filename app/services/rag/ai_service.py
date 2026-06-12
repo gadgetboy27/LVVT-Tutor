@@ -1,23 +1,99 @@
 import os
 import json
 import re
-from openai import OpenAI
 from typing import List, Dict, Any
 
-_client = None
+import anthropic
+from openai import OpenAI
+
+from app.core.config import settings
+
+# --------------------------------------------------------------------------- #
+# LLM provider layer: primary = Anthropic (Claude Fable 5), fallback = OpenAI.
+# All clients are built lazily so the app imports without any key, and every
+# AI-using endpoint additionally has a deterministic non-AI fallback on top.
+# --------------------------------------------------------------------------- #
+_anthropic_client = None
+_openai_client = None
 
 
-def _get_client() -> OpenAI:
-    # Build the client lazily so the app can import and serve the non-AI paths
-    # (deterministic quiz fallback, PDF routes, standards listing) even when no
-    # OpenAI key is configured. Without this, a missing key fails app import.
-    global _client
-    if _client is None:
-        _client = OpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY"),
-            base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL"),
+def _anthropic_ready() -> bool:
+    return bool(settings.ANTHROPIC_API_KEY)
+
+
+def _get_anthropic() -> anthropic.Anthropic:
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    return _anthropic_client
+
+
+def _openai_ready() -> bool:
+    return bool(settings.OPENAI_API_KEY)
+
+
+def _get_openai() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI(
+            api_key=settings.OPENAI_API_KEY or None,
+            base_url=settings.OPENAI_BASE_URL or None,
         )
-    return _client
+    return _openai_client
+
+
+def _anthropic_chat(system: str, user: str, max_tokens: int) -> str:
+    # Fable 5: adaptive thinking only and no sampling params; omit both. The
+    # system prompt is a top-level field, not a message.
+    resp = _get_anthropic().messages.create(
+        model=settings.ANTHROPIC_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": user}],
+    )
+    return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+
+
+def _openai_chat(system: str, user: str, max_tokens: int) -> str:
+    resp = _get_openai().chat.completions.create(
+        model=settings.OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        max_tokens=max_tokens,
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _provider_order() -> List[str]:
+    pref = (settings.LLM_PROVIDER or "auto").lower()
+    if pref == "anthropic":
+        return ["anthropic"]
+    if pref == "openai":
+        return ["openai"]
+    return ["anthropic", "openai"]  # auto: Fable first, OpenAI as fallback
+
+
+def _llm_chat(system: str, user: str, max_tokens: int = 1024) -> str:
+    """One chat completion with provider fallback (Anthropic -> OpenAI).
+
+    Raises RuntimeError if no provider is configured or all fail. Callers that
+    need graceful degradation wrap this in try/except and fall back to
+    deterministic, non-AI logic (quiz + teach-back already do)."""
+    last_error = None
+    for provider in _provider_order():
+        try:
+            if provider == "anthropic" and _anthropic_ready():
+                return _anthropic_chat(system, user, max_tokens)
+            if provider == "openai" and _openai_ready():
+                return _openai_chat(system, user, max_tokens)
+        except Exception as e:  # noqa: BLE001 — try the next provider
+            last_error = e
+            print(f"LLM provider '{provider}' failed: {e}")
+    raise RuntimeError(
+        f"No LLM provider available (set ANTHROPIC_API_KEY or OPENAI_API_KEY): {last_error}"
+    )
 
 
 def generate_answer_with_citations(question: str, context_chunks: List[Dict]) -> str:
@@ -45,17 +121,7 @@ QUESTION: {question}
 
 Provide a clear, professional answer with specific Standard citations:"""
 
-    response = _get_client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.3,
-        max_tokens=1000
-    )
-    
-    return response.choices[0].message.content
+    return _llm_chat(system_prompt, user_prompt, max_tokens=1000)
 
 
 def generate_quiz_questions(context: str, standard_number: str, num_questions: int = 5) -> List[Dict]:
@@ -86,18 +152,8 @@ Include a mix of:
 
 Make questions practical and relevant to certification work."""
 
-    response = _get_client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=2000
-    )
-    
     try:
-        content = response.choices[0].message.content
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
         start = content.find('[')
         end = content.rfind(']') + 1
         if start != -1 and end > start:
@@ -133,18 +189,8 @@ Respond with a JSON object containing:
 
 Focus on the technical requirements and certification processes."""
 
-    response = _get_client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.3,
-        max_tokens=2000
-    )
-    
     try:
-        content = response.choices[0].message.content
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
         start = content.find('{')
         end = content.rfind('}') + 1
         if start != -1 and end > start:
@@ -174,17 +220,7 @@ Provide a detailed explanation that:
 
 Format your response clearly with examples."""
 
-    response = _get_client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.5,
-        max_tokens=800
-    )
-    
-    return response.choices[0].message.content
+    return _llm_chat(system_prompt, user_prompt, max_tokens=800)
 
 
 def evaluate_answer(question: str, user_answer: str, correct_answer: str, difficulty: str, standard_number: str) -> Dict[str, Any]:
@@ -213,17 +249,7 @@ Respond with a JSON object:
 Be fair but rigorous - this is professional certification training."""
 
     try:
-        response = _get_client().chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.3,
-            max_tokens=500
-        )
-        
-        content = response.choices[0].message.content
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=500)
         start = content.find('{')
         end = content.rfind('}') + 1
         if start != -1 and end > start:
@@ -267,18 +293,8 @@ Return a JSON array:
 
 Questions must test deep understanding required for professional LVV certification."""
 
-    response = _get_client().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.7,
-        max_tokens=2000
-    )
-
     try:
-        content = response.choices[0].message.content
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
         start = content.find('[')
         end = content.rfind(']') + 1
         if start != -1 and end > start:
@@ -360,16 +376,7 @@ Compare the explanation to the SOURCE EXCERPTS and respond with a JSON object:
 
 Only include items you can support with the SOURCE EXCERPTS."""
         try:
-            response = _get_client().chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.1,
-                max_tokens=700,
-            )
-            content = response.choices[0].message.content
+            content = _llm_chat(system_prompt, user_prompt, max_tokens=700)
             start = content.find('{')
             end = content.rfind('}') + 1
             if start != -1 and end > start:
@@ -440,16 +447,7 @@ Produce up to {max_aspects} teach-back aspects as a JSON array:
 
 Only use information present in the SOURCE EXCERPTS."""
         try:
-            response = _get_client().chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.4,
-                max_tokens=1200,
-            )
-            content = response.choices[0].message.content
+            content = _llm_chat(system_prompt, user_prompt, max_tokens=1200)
             start = content.find('[')
             end = content.rfind(']') + 1
             if start != -1 and end > start:

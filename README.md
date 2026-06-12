@@ -195,9 +195,15 @@ The app emphasizes the soft skills required for LVV Certifiers:
 - 21 LVV Technical Standards (Braking, Suspension, Engine, etc.)
 
 ## Environment Variables
+Copy `.env.example` to `.env` and fill in your keys (`.env` is git-ignored).
+
 - `DATABASE_URL` - PostgreSQL connection string
-- `OPENAI_API_KEY` - OpenAI API key (falls back to `AI_INTEGRATIONS_OPENAI_API_KEY` if set)
+- `LLM_PROVIDER` - `auto` (Anthropic first, OpenAI fallback), `anthropic`, or `openai`
+- `ANTHROPIC_API_KEY` - Anthropic API key for Claude Fable 5 (primary text AI)
+- `ANTHROPIC_MODEL` - Claude model id (default `claude-fable-5`)
+- `OPENAI_API_KEY` - OpenAI API key (fallback text AI + audio TTS; falls back to `AI_INTEGRATIONS_OPENAI_API_KEY`)
 - `OPENAI_BASE_URL` - OpenAI base URL (optional; falls back to `AI_INTEGRATIONS_OPENAI_BASE_URL`, else OpenAI default)
+- `OPENAI_MODEL` - OpenAI model id (default `gpt-4o-mini`)
 - `SECRET_KEY` - JWT signing key
 
 ## Running the App

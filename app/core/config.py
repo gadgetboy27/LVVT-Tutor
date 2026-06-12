@@ -8,9 +8,18 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
+    # LLM provider: "auto" tries Anthropic (Claude Fable 5) first, then OpenAI.
+    LLM_PROVIDER: str = os.environ.get("LLM_PROVIDER", "auto")
+
+    # Anthropic (Claude Fable 5) — primary text AI
+    ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_MODEL: str = os.environ.get("ANTHROPIC_MODEL", "claude-fable-5")
+
+    # OpenAI — fallback for text AI, and audio (text-to-speech has no Anthropic equivalent)
     OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
     OPENAI_BASE_URL: str = os.environ.get("OPENAI_BASE_URL") or os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "")
-    
+    OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
     LVVTA_BASE_URL: str = "https://www.lvvta.org.nz"
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     
