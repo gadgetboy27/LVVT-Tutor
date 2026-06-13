@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from app.core.database import get_db
-from app.models.quiz import Standard, QuizResult
+from app.models.quiz import Standard, QuizResult, SavedQuizState
 from app.models.user import User
 from app.services.auth.jwt import get_current_user
 from app.services.rag.vector_store import (
@@ -223,6 +223,52 @@ def get_quiz_history(
     ).order_by(QuizResult.created_at.desc()).limit(20).all()
     
     return results
+
+
+class QuizStateRequest(BaseModel):
+    state: dict
+
+
+@router.get("/state")
+def get_quiz_state(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Return the user's saved in-progress quiz (or null)."""
+    row = db.query(SavedQuizState).filter(
+        SavedQuizState.user_id == current_user.id
+    ).first()
+    return {"state": row.state if row else None}
+
+
+@router.put("/state")
+def save_quiz_state(
+    request: QuizStateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Upsert the user's in-progress quiz state."""
+    row = db.query(SavedQuizState).filter(
+        SavedQuizState.user_id == current_user.id
+    ).first()
+    if row:
+        row.state = request.state
+    else:
+        db.add(SavedQuizState(user_id=current_user.id, state=request.state))
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/state")
+def clear_quiz_state(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    db.query(SavedQuizState).filter(
+        SavedQuizState.user_id == current_user.id
+    ).delete()
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/evaluate-answer", response_model=EvaluateAnswerResponse)

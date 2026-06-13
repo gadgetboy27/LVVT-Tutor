@@ -9,10 +9,28 @@ let currentStandard = null;
 let currentView = 'dashboard';
 let currentTeachStandard = null;
 let currentTeachTree = null;
+let userStats = { quizzes: 0, score: 0, mastered: 0 };
+let savedState = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
 });
+
+function authHeaders(extra = {}) {
+    const h = { ...extra };
+    if (authToken) h['Authorization'] = `Bearer ${authToken}`;
+    return h;
+}
+
+function showError(id, msg) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = msg; el.classList.remove('hidden'); }
+}
+
+function hideError(id) {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = ''; el.classList.add('hidden'); }
+}
 
 async function initializeApp() {
     setupEventListeners();
@@ -90,28 +108,84 @@ function switchAuthTab(tab) {
 
 async function handleLogin(e) {
     e.preventDefault();
-    const email = document.getElementById('login-email').value || 'demo@lvvlearn.nz';
+    hideError('login-error');
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) {
+        showError('login-error', 'Enter your email and password.');
+        return;
+    }
     showLoading('Logging in...');
-    currentUser = { email: email, id: 1 };
-    authToken = 'mock-token';
-    localStorage.setItem('lvv_token', authToken);
-    localStorage.setItem('lvv_user', JSON.stringify(currentUser));
-    document.getElementById('username-display').textContent = email;
-    hideLoading();
-    showMainContent();
+    try {
+        // /api/auth/login uses OAuth2PasswordRequestForm -> form-encoded username/password
+        const body = new URLSearchParams({ username: email, password });
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Incorrect email or password');
+        }
+        const data = await response.json();
+        authToken = data.access_token;
+        localStorage.setItem('lvv_token', authToken);
+        await loadCurrentUser();
+        await showMainContent();
+    } catch (err) {
+        showError('login-error', err.message);
+    } finally {
+        hideLoading();
+    }
 }
 
 async function handleRegister(e) {
     e.preventDefault();
-    const email = document.getElementById('register-email').value || 'demo@lvvlearn.nz';
+    hideError('register-error');
+    const email = document.getElementById('register-email').value.trim();
+    const password = document.getElementById('register-password').value;
+    const confirm = document.getElementById('register-confirm').value;
+    if (!email || !password) {
+        showError('register-error', 'Enter an email and password.');
+        return;
+    }
+    if (password.length < 6) {
+        showError('register-error', 'Password must be at least 6 characters.');
+        return;
+    }
+    if (password !== confirm) {
+        showError('register-error', 'Passwords do not match.');
+        return;
+    }
     showLoading('Creating account...');
-    currentUser = { email: email, id: 1 };
-    authToken = 'mock-token';
-    localStorage.setItem('lvv_token', authToken);
-    localStorage.setItem('lvv_user', JSON.stringify(currentUser));
-    document.getElementById('username-display').textContent = email;
-    hideLoading();
-    showMainContent();
+    try {
+        const response = await fetch(`${API_BASE}/api/auth/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Registration failed');
+        }
+        // Registered — log straight in.
+        const body = new URLSearchParams({ username: email, password });
+        const loginResp = await fetch(`${API_BASE}/api/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body
+        });
+        const data = await loginResp.json();
+        authToken = data.access_token;
+        localStorage.setItem('lvv_token', authToken);
+        await loadCurrentUser();
+        await showMainContent();
+    } catch (err) {
+        showError('register-error', err.message);
+    } finally {
+        hideLoading();
+    }
 }
 
 function handleLogout() {
@@ -120,18 +194,16 @@ function handleLogout() {
     localStorage.removeItem('lvv_user');
     authToken = null;
     currentUser = null;
+    savedState = null;
+    userStats = { quizzes: 0, score: 0, mastered: 0 };
     showAuthSection();
 }
 
 async function loadCurrentUser() {
-    const savedUser = localStorage.getItem('lvv_user');
-    if (savedUser) {
-        currentUser = JSON.parse(savedUser);
-        document.getElementById('username-display').textContent = currentUser.email;
-    } else {
-        currentUser = { email: 'demo@lvvlearn.nz', id: 1 };
-        document.getElementById('username-display').textContent = currentUser.email;
-    }
+    const response = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Session expired');
+    currentUser = await response.json();
+    document.getElementById('username-display').textContent = currentUser.email;
 }
 
 function showAuthSection() {
@@ -178,19 +250,32 @@ function switchView(view) {
 }
 
 async function loadProgress() {
-    const savedProgress = JSON.parse(localStorage.getItem('lvv_progress') || '{"quizzes":0,"score":0,"mastered":0}');
-    document.getElementById('total-quizzes').textContent = savedProgress.quizzes || 0;
-    document.getElementById('avg-score').textContent = `${Math.round(savedProgress.score || 0)}%`;
-    document.getElementById('sections-mastered').textContent = savedProgress.mastered || 0;
-    
+    // Source of truth is the server: aggregate the user's saved quiz results.
+    try {
+        const response = await fetch(`${API_BASE}/api/quiz/history`, { headers: authHeaders() });
+        if (response.ok) {
+            const history = await response.json();
+            const quizzes = history.length;
+            const avg = quizzes ? history.reduce((s, r) => s + (r.score || 0), 0) / quizzes : 0;
+            const mastered = history.filter(r => (r.score || 0) >= 80).length;
+            userStats = { quizzes, score: avg, mastered };
+        }
+    } catch (e) {
+        console.error('loadProgress error:', e);
+    }
+
+    document.getElementById('total-quizzes').textContent = userStats.quizzes;
+    document.getElementById('avg-score').textContent = `${Math.round(userStats.score)}%`;
+    document.getElementById('sections-mastered').textContent = userStats.mastered;
+
     const readiness = calculateReadiness();
     document.getElementById('readiness-score').textContent = `${readiness}%`;
 }
 
 function calculateReadiness() {
-    const progress = JSON.parse(localStorage.getItem('lvv_progress') || '{}');
+    const progress = userStats;
     const assessment = JSON.parse(localStorage.getItem('lvv_self_assessment') || '{}');
-    
+
     let score = 0;
     if (progress.quizzes > 0) score += Math.min(20, progress.quizzes * 2);
     if (progress.score > 0) score += (progress.score / 100) * 30;
@@ -714,54 +799,104 @@ function showQuizComplete() {
         masteryMsg.className = '';
     }
     
-    updateProgress(percentage);
-    localStorage.removeItem('lvv_quiz_state');
+    persistQuizResult(percentage, totalScore);
 }
 
-function updateProgress(score) {
-    const progress = JSON.parse(localStorage.getItem('lvv_progress') || '{"quizzes":0,"score":0,"mastered":0,"totalScore":0}');
-    progress.quizzes = (progress.quizzes || 0) + 1;
-    progress.totalScore = (progress.totalScore || 0) + score;
-    progress.score = progress.totalScore / progress.quizzes;
-    if (score >= 80) {
-        progress.mastered = (progress.mastered || 0) + 1;
+async function persistQuizResult(percentage, correct) {
+    // Scenario practice isn't a real standard — don't record it as a quiz result.
+    if (currentQuiz.standardNumber && currentQuiz.standardNumber !== 'SCENARIO') {
+        try {
+            await fetch(`${API_BASE}/api/quiz/submit`, {
+                method: 'POST',
+                headers: authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({
+                    standard_number: currentQuiz.standardNumber,
+                    score: percentage,
+                    total_questions: quizAnswers.length,
+                    correct_answers: correct,
+                    answers: {}
+                })
+            });
+        } catch (e) {
+            console.error('persistQuizResult error:', e);
+        }
+        await loadProgress();
     }
-    localStorage.setItem('lvv_progress', JSON.stringify(progress));
+    clearSavedQuiz();
 }
 
-function saveQuizState() {
-    const state = {
+function quizStatePayload() {
+    return {
         quiz: currentQuiz,
         questionIndex: currentQuestionIndex,
         answers: quizAnswers,
         timestamp: Date.now()
     };
+}
+
+function saveQuizState() {
+    // Scenarios are transient — don't persist them as a resumable quiz.
+    if (!currentQuiz || currentQuiz.standardNumber === 'SCENARIO') return;
+    const state = quizStatePayload();
     localStorage.setItem('lvv_quiz_state', JSON.stringify(state));
+    if (authToken) {
+        fetch(`${API_BASE}/api/quiz/state`, {
+            method: 'PUT',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ state })
+        }).catch(e => console.error('saveQuizState error:', e));
+    }
+}
+
+function clearSavedQuiz() {
+    localStorage.removeItem('lvv_quiz_state');
+    savedState = null;
+    document.getElementById('resume-section').classList.add('hidden');
+    if (authToken) {
+        fetch(`${API_BASE}/api/quiz/state`, { method: 'DELETE', headers: authHeaders() })
+            .catch(e => console.error('clearSavedQuiz error:', e));
+    }
 }
 
 async function checkSavedQuiz() {
-    const saved = localStorage.getItem('lvv_quiz_state');
-    if (saved) {
-        const state = JSON.parse(saved);
-        const hoursSincesSaved = (Date.now() - state.timestamp) / (1000 * 60 * 60);
-        
-        if (hoursSincesSaved < 24 && state.quiz) {
-            document.getElementById('resume-section').classList.remove('hidden');
-            document.getElementById('resume-info').textContent = 
-                `${state.quiz.title} - Question ${state.questionIndex + 1} of ${state.quiz.totalQuestions}`;
-        } else {
-            localStorage.removeItem('lvv_quiz_state');
+    // Prefer the server copy (cross-device); fall back to a recent local copy.
+    savedState = null;
+    if (authToken) {
+        try {
+            const response = await fetch(`${API_BASE}/api/quiz/state`, { headers: authHeaders() });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.state && data.state.quiz) savedState = data.state;
+            }
+        } catch (e) {
+            console.error('checkSavedQuiz error:', e);
         }
+    }
+    if (!savedState) {
+        const local = localStorage.getItem('lvv_quiz_state');
+        if (local) {
+            const state = JSON.parse(local);
+            const hoursSince = (Date.now() - (state.timestamp || 0)) / (1000 * 60 * 60);
+            if (hoursSince < 24 && state.quiz) savedState = state;
+            else localStorage.removeItem('lvv_quiz_state');
+        }
+    }
+
+    const section = document.getElementById('resume-section');
+    if (savedState && savedState.quiz) {
+        section.classList.remove('hidden');
+        document.getElementById('resume-info').textContent =
+            `${savedState.quiz.title} - Question ${savedState.questionIndex + 1} of ${savedState.quiz.totalQuestions}`;
+    } else {
+        section.classList.add('hidden');
     }
 }
 
 function resumeQuiz() {
-    const saved = localStorage.getItem('lvv_quiz_state');
-    if (saved) {
-        const state = JSON.parse(saved);
-        currentQuiz = state.quiz;
-        currentQuestionIndex = state.questionIndex;
-        quizAnswers = state.answers || [];
+    if (savedState && savedState.quiz) {
+        currentQuiz = savedState.quiz;
+        currentQuestionIndex = savedState.questionIndex;
+        quizAnswers = savedState.answers || [];
         showQuizInterface();
     }
 }
@@ -881,7 +1016,7 @@ function saveSelfAssessment() {
 }
 
 function updateReadinessScores() {
-    const progress = JSON.parse(localStorage.getItem('lvv_progress') || '{}');
+    const progress = userStats;
     const assessment = JSON.parse(localStorage.getItem('lvv_self_assessment') || '{}');
     
     const techScore = Math.min(100, (progress.quizzes || 0) * 10);

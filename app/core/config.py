@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
     SECRET_KEY: str = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Long-lived token so users stay signed in across sessions (default 7 days).
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7)))
     
     # LLM provider: "auto" tries Anthropic (Claude Fable 5) first, then OpenAI.
     LLM_PROVIDER: str = os.environ.get("LLM_PROVIDER", "auto")

@@ -68,6 +68,17 @@ class SectionMastery(Base):
     user = relationship("User", back_populates="section_masteries")
 
 
+class SavedQuizState(Base):
+    """One in-progress quiz per user, so 'continue where you left off' works
+    across devices (not just same-browser localStorage)."""
+    __tablename__ = "saved_quiz_state"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    state = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class UserProgress(Base):
     __tablename__ = "user_progress"
     
