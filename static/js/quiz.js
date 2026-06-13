@@ -681,69 +681,92 @@ function selectOption(index) {
     selectedAnswer = index;
 }
 
+function gradeMCQ(question) {
+    // We already know the correct option, so grade locally — no AI call needed.
+    // correct_answer may be a letter ("B") or the full option text.
+    const ca = String(question.correct_answer || '').trim();
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    let correctIndex = question.options.findIndex(o => o === ca);
+    if (correctIndex === -1 && ca.length === 1 && letters.includes(ca.toUpperCase())) {
+        correctIndex = letters.indexOf(ca.toUpperCase());
+    }
+    if (correctIndex === -1 && ca) {
+        correctIndex = question.options.findIndex(o => o.toLowerCase().includes(ca.toLowerCase()));
+    }
+    const isCorrect = selectedAnswer === correctIndex;
+    const correctText = correctIndex >= 0 ? question.options[correctIndex] : ca;
+    return {
+        is_correct: isCorrect,
+        score: isCorrect ? 100 : 0,
+        explanation: question.explanation || (isCorrect ? 'Correct!' : `The correct answer is: ${correctText}`),
+        citation: ''
+    };
+}
+
 async function submitAnswer() {
     const question = currentQuiz.questions[currentQuestionIndex];
+    const isMCQ = question.options && question.options.length > 0;
+    let feedback;
     let userAnswer;
-    
-    if (question.options && question.options.length > 0) {
+
+    if (isMCQ) {
         if (selectedAnswer === null) {
             alert('Please select an answer');
             return;
         }
         userAnswer = question.options[selectedAnswer];
+        feedback = gradeMCQ(question);
     } else {
         userAnswer = document.getElementById('text-answer').value.trim();
         if (!userAnswer) {
             alert('Please enter your answer');
             return;
         }
-    }
-    
-    showLoading('AI is evaluating your answer...');
-    
-    try {
-        const response = await fetch(`${API_BASE}/api/quiz/evaluate-answer`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                question: question.question,
-                user_answer: userAnswer,
-                correct_answer: question.correct_answer,
-                difficulty: question.difficulty || 'medium',
-                standard_number: currentQuiz.standardNumber
-            })
-        });
-        
-        let feedback;
-        if (response.ok) {
-            feedback = await response.json();
-        } else {
-            const isCorrect = userAnswer.toLowerCase().includes(question.correct_answer.toLowerCase()) ||
-                             question.correct_answer.toLowerCase().includes(userAnswer.toLowerCase());
-            feedback = {
-                is_correct: isCorrect,
-                score: isCorrect ? 100 : 0,
-                explanation: isCorrect ? 'Correct!' : `The correct answer is: ${question.correct_answer}`,
-                citation: ''
-            };
+        // Open-ended answers need real grading — this is the only AI call per quiz.
+        showLoading('Evaluating your answer...');
+        try {
+            const response = await fetch(`${API_BASE}/api/quiz/evaluate-answer`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: question.question,
+                    user_answer: userAnswer,
+                    correct_answer: question.correct_answer,
+                    difficulty: question.difficulty || 'medium',
+                    standard_number: currentQuiz.standardNumber
+                })
+            });
+            if (response.ok) {
+                feedback = await response.json();
+            } else {
+                const isCorrect = userAnswer.toLowerCase().includes(question.correct_answer.toLowerCase()) ||
+                                 question.correct_answer.toLowerCase().includes(userAnswer.toLowerCase());
+                feedback = {
+                    is_correct: isCorrect,
+                    score: isCorrect ? 100 : 0,
+                    explanation: isCorrect ? 'Correct!' : `The correct answer is: ${question.correct_answer}`,
+                    citation: ''
+                };
+            }
+        } catch (e) {
+            alert('Failed to evaluate answer: ' + e.message);
+            return;
+        } finally {
+            hideLoading();
         }
-        
-        quizAnswers.push({
-            question: question.question,
-            userAnswer,
-            correctAnswer: question.correct_answer,
-            isCorrect: feedback.is_correct,
-            score: feedback.score,
-            explanation: feedback.explanation
-        });
-        
-        showFeedback(feedback);
-        saveQuizState();
-    } catch (e) {
-        alert('Failed to evaluate answer: ' + e.message);
-    } finally {
-        hideLoading();
     }
+
+    quizAnswers.push({
+        question: question.question,
+        userAnswer,
+        correctAnswer: question.correct_answer,
+        isCorrect: feedback.is_correct,
+        score: feedback.score,
+        explanation: feedback.explanation
+    });
+
+    showFeedback(feedback);
+    saveQuizState();
 }
 
 function showFeedback(feedback) {

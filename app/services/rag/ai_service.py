@@ -153,7 +153,7 @@ Include a mix of:
 Make questions practical and relevant to certification work."""
 
     try:
-        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=4000)
         start = content.find('[')
         end = content.rfind(']') + 1
         if start != -1 and end > start:
@@ -190,7 +190,7 @@ Respond with a JSON object containing:
 Focus on the technical requirements and certification processes."""
 
     try:
-        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=4000)
         start = content.find('{')
         end = content.rfind('}') + 1
         if start != -1 and end > start:
@@ -294,7 +294,7 @@ Return a JSON array:
 Questions must test deep understanding required for professional LVV certification."""
 
     try:
-        content = _llm_chat(system_prompt, user_prompt, max_tokens=2000)
+        content = _llm_chat(system_prompt, user_prompt, max_tokens=4000)
         start = content.find('[')
         end = content.rfind(']') + 1
         if start != -1 and end > start:

@@ -14,7 +14,9 @@ class Settings(BaseSettings):
 
     # Anthropic (Claude Fable 5) — primary text AI
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
-    ANTHROPIC_MODEL: str = os.environ.get("ANTHROPIC_MODEL", "claude-fable-5")
+    # Default to Opus 4.8 (broadly available); set ANTHROPIC_MODEL=claude-fable-5
+    # in the environment if your account has Fable access.
+    ANTHROPIC_MODEL: str = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
 
     # OpenAI — fallback for text AI, and audio (text-to-speech has no Anthropic equivalent)
     OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY") or os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY", "")
