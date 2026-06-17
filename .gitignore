@@ -54,6 +54,9 @@ screenshots/
 _demo_*.py
 _demo*.db
 
+# local-dev SQLite DB (run-local.sh)
+local_dev.db
+
 # Platform/agent state (unused)
 .config/
 .local/
