@@ -4,7 +4,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
+import asyncio
 import time
+from app.core.config import settings
 from app.core.database import engine, Base, SessionLocal
 from app.api.auth import router as auth_router
 from app.api.standards import router as standards_router
@@ -71,6 +73,19 @@ def seed_initial_standards():
         db.close()
 
 
+async def _pdf_refresh_loop():
+    """Re-check source PDFs shortly after boot, then every PDF_REFRESH_INTERVAL_HOURS."""
+    from app.services.rag.pdf_refresh import refresh_stale_pdfs
+    await asyncio.sleep(30)  # let startup seeding finish first
+    while True:
+        try:
+            result = await asyncio.to_thread(refresh_stale_pdfs)
+            print(f"PDF refresh: {result}")
+        except Exception as e:
+            print(f"PDF refresh failed: {e}")
+        await asyncio.sleep(settings.PDF_REFRESH_INTERVAL_HOURS * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_initial_standards()
@@ -87,7 +102,10 @@ async def lifespan(app: FastAPI):
             print(f"Backfilled pdf_url for {result['updated']} standards from ChromaDB")
     except Exception as e:
         print(f"Standard seeding from ChromaDB skipped: {e}")
+    refresh_task = asyncio.create_task(_pdf_refresh_loop()) if settings.PDF_REFRESH_ENABLED else None
     yield
+    if refresh_task:
+        refresh_task.cancel()
 
 app = FastAPI(
     title="LVV-Learn: LVV Certifier Training API",

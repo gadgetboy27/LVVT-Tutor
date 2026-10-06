@@ -12,6 +12,11 @@ let currentTeachTree = null;
 let userStats = { quizzes: 0, score: 0, mastered: 0 };
 let savedState = null;
 let isGuest = false;
+let mockExam = null;      // active exam: {id, questions, ...}
+let mockAnswers = {};     // question_id -> option letter
+let mockIndex = 0;
+let mockTimer = null;
+let mockEndsAt = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -59,6 +64,10 @@ function setupEventListeners() {
     document.getElementById('register-form').addEventListener('submit', handleRegister);
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
     document.getElementById('guest-btn').addEventListener('click', continueAsGuest);
+    document.getElementById('mock-start-btn').addEventListener('click', startMockExam);
+    document.getElementById('mock-prev-btn').addEventListener('click', () => goMockQuestion(mockIndex - 1));
+    document.getElementById('mock-next-btn').addEventListener('click', () => goMockQuestion(mockIndex + 1));
+    document.getElementById('mock-submit-btn').addEventListener('click', () => submitMockExam(false));
     document.getElementById('guest-signup-btn').addEventListener('click', () => {
         handleLogout();
         switchAuthTab('register');
@@ -205,6 +214,9 @@ function continueAsGuest() {
 
 function handleLogout() {
     isGuest = false;
+    clearInterval(mockTimer);
+    mockExam = null;
+    document.getElementById('mock-result').innerHTML = '';
     document.getElementById('guest-banner').classList.add('hidden');
     localStorage.removeItem('lvv_token');
     localStorage.removeItem('lvv_quiz_state');
@@ -267,6 +279,155 @@ function switchView(view) {
     if (view === 'report-card') {
         loadReportCard();
     }
+    if (view === 'mock-exam') {
+        showMockView();
+    }
+}
+
+// ---- Mock Formal Assessment: 20 closed-book MCQs, 30 minutes, 15 to pass ----
+function showMockPanel(which) {
+    ['mock-intro', 'mock-run', 'mock-result'].forEach(id =>
+        document.getElementById(id).classList.toggle('hidden', id !== which));
+}
+
+function showMockView() {
+    // Coming back mid-exam must not reset it; the timer keeps running regardless.
+    if (mockExam) {
+        showMockPanel('mock-run');
+        return;
+    }
+    document.getElementById('mock-guest-note').classList.toggle('hidden', !isGuest);
+    document.getElementById('mock-start-btn').disabled = isGuest;
+    hideError('mock-error');
+    if (document.getElementById('mock-result').innerHTML.trim()) return;
+    showMockPanel('mock-intro');
+}
+
+async function startMockExam() {
+    hideError('mock-error');
+    showLoading('Building your exam from the standards...');
+    try {
+        const response = await fetch(`${API_BASE}/api/practice-exam/formal/start`, {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' })
+        });
+        if (response.status === 401) throw new Error('Please log in or create an account to sit the mock exam.');
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || 'Could not start the exam');
+        }
+        mockExam = await response.json();
+        mockAnswers = {};
+        mockIndex = 0;
+        document.getElementById('mock-result').innerHTML = '';
+        mockEndsAt = Date.now() + mockExam.time_remaining_seconds * 1000;
+        clearInterval(mockTimer);
+        mockTimer = setInterval(tickMockTimer, 1000);
+        showMockPanel('mock-run');
+        tickMockTimer();
+        renderMockQuestion();
+    } catch (e) {
+        showError('mock-error', e.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function tickMockTimer() {
+    if (!mockExam) return;
+    const left = Math.max(0, Math.round((mockEndsAt - Date.now()) / 1000));
+    const el = document.getElementById('mock-timer');
+    el.textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+    el.classList.toggle('low', left <= 300);
+    if (left === 0) submitMockExam(true);
+}
+
+function goMockQuestion(i) {
+    if (!mockExam) return;
+    mockIndex = Math.min(Math.max(0, i), mockExam.questions.length - 1);
+    renderMockQuestion();
+}
+
+function renderMockQuestion() {
+    const qs = mockExam.questions;
+    const q = qs[mockIndex];
+    document.getElementById('mock-progress').textContent = `Question ${mockIndex + 1} of ${qs.length}`;
+    document.getElementById('mock-question').textContent = q.question;
+    document.getElementById('mock-options').innerHTML = (q.options || []).map((o, i) => {
+        const letter = String.fromCharCode(65 + i);
+        return `<div class="answer-option ${mockAnswers[q.question_id] === letter ? 'selected' : ''}" data-letter="${letter}">${escapeHtml(o)}</div>`;
+    }).join('');
+    document.querySelectorAll('#mock-options .answer-option').forEach(el => {
+        el.addEventListener('click', () => {
+            mockAnswers[q.question_id] = el.dataset.letter;
+            renderMockQuestion();
+        });
+    });
+    document.getElementById('mock-nav').innerHTML = qs.map((x, i) =>
+        `<button class="mock-dot ${mockAnswers[x.question_id] ? 'answered' : ''} ${i === mockIndex ? 'current' : ''}" data-i="${i}">${i + 1}</button>`).join('');
+    document.querySelectorAll('#mock-nav .mock-dot').forEach(b =>
+        b.addEventListener('click', () => goMockQuestion(parseInt(b.dataset.i, 10))));
+    document.getElementById('mock-prev-btn').disabled = mockIndex === 0;
+    document.getElementById('mock-next-btn').disabled = mockIndex === qs.length - 1;
+}
+
+async function submitMockExam(auto) {
+    if (!mockExam) return;
+    const unanswered = mockExam.questions.filter(q => !mockAnswers[q.question_id]).length;
+    if (!auto && unanswered > 0 &&
+        !confirm(`${unanswered} question(s) are unanswered and will be marked wrong. Submit anyway?`)) {
+        return;
+    }
+    const exam = mockExam;
+    clearInterval(mockTimer);
+    showLoading('Marking your exam...');
+    try {
+        const response = await fetch(`${API_BASE}/api/practice-exam/submit`, {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ exam_id: exam.id, answers: mockAnswers })
+        });
+        if (!response.ok) throw new Error('Could not submit the exam');
+        renderMockResult(await response.json(), auto);
+        mockExam = null;
+    } catch (e) {
+        // Keep the exam so the user can retry the submit instead of losing their answers.
+        mockTimer = setInterval(tickMockTimer, 1000);
+        alert(e.message);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderMockResult(r, auto) {
+    const pct = Math.round(r.score);
+    const review = r.results.map((q, i) => `
+        <li class="${q.is_correct ? 'ok' : 'bad'}">
+            <strong>${i + 1}. ${escapeHtml(q.question)}</strong>
+            <div>Your answer: ${escapeHtml(q.user_answer || '(none)')} · Correct: ${escapeHtml(q.correct_answer)}</div>
+            ${q.explanation ? `<div class="rc-hint">${escapeHtml(q.explanation)}</div>` : ''}
+        </li>`).join('');
+    const el = document.getElementById('mock-result');
+    el.innerHTML = `
+        <div class="rc-summary ${r.passed ? '' : 'needs-support'}">
+            <div class="rc-grade">${r.passed ? 'PASS' : 'FAIL'}</div>
+            <div><h3>${r.correct_answers} / ${r.total_questions} correct (${pct}%)</h3>
+            <p>You needed ${r.required_correct} to pass.
+            ${r.timed_out ? ' Your submission arrived after the time limit, so it counts as a fail.' : ''}
+            ${auto && !r.timed_out ? ' Time ran out, so your answers were submitted automatically.' : ''}
+            This attempt now counts toward your Report Card.</p></div>
+        </div>
+        <div class="mock-actions">
+            <button class="btn btn-primary" id="mock-again-btn">Sit another exam</button>
+            <button class="btn btn-secondary" id="mock-report-btn">View Report Card</button>
+        </div>
+        <h3>Review</h3><ol class="mock-review">${review}</ol>`;
+    showMockPanel('mock-result');
+    document.getElementById('mock-again-btn').addEventListener('click', () => {
+        el.innerHTML = '';
+        showMockPanel('mock-intro');
+    });
+    document.getElementById('mock-report-btn').addEventListener('click', () => switchView('report-card'));
 }
 
 async function loadReportCard() {
@@ -288,6 +449,17 @@ async function loadReportCard() {
     } catch (e) {
         body.innerHTML = `<p class="error-message">${escapeHtml(e.message)}</p>`;
     }
+}
+
+function renderMockSummary(r) {
+    const m = r.mock_exams;
+    if (!m || !m.attempts) {
+        return `<div class="rc-focus"><h4>Mock Formal Assessment</h4>
+            <p class="rc-hint">You haven't sat a mock exam yet. The real written test is ${escapeHtml(m ? m.pass_rule : '15 of 20 correct in 30 minutes')}.</p></div>`;
+    }
+    const rows = m.recent.map(a => `<li>${a.correct}/${a.total} (${a.score}%) — ${a.passed ? 'pass' : 'not yet'}</li>`).join('');
+    return `<div class="rc-focus"><h4>Mock Formal Assessment <span class="rc-score">${m.attempts} attempt${m.attempts === 1 ? '' : 's'} · best ${Math.round(m.best)}%</span></h4>
+        <p class="rc-hint">Pass mark: ${escapeHtml(m.pass_rule)}.</p><ul class="rc-missed">${rows}</ul></div>`;
 }
 
 function renderReportCard(r) {
@@ -319,6 +491,7 @@ function renderReportCard(r) {
             <div class="rc-grade">${r.grade}</div>
             <div><h3>${r.overall_average}% overall ${trend}</h3><p>${escapeHtml(r.summary)}</p></div>
         </div>
+        ${renderMockSummary(r)}
         <h3>By subject area</h3>${r.categories.map(row).join('')}
         <h3>By standard</h3>${r.standards.map(row).join('')}
         ${focus ? `<h3>Where to focus</h3>${focus}` : ''}`;

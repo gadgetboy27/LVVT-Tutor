@@ -1,27 +1,83 @@
 """Report card: turns a user's past quiz results into per-subject strengths and
 weaknesses, with study hints drawn from the questions they actually missed.
 
-Unlocks after MIN_QUIZZES completed quizzes. Subjects at or below WEAK_MAX
-(69%) are flagged and each gets a "practice" target the frontend can launch as a
-fresh quiz.
+Unlocks after MIN_QUIZZES completed quizzes. Subjects at or below WEAK_MAX are
+flagged and each gets a "practice" target the frontend can launch as a fresh quiz.
+Completed Mock Formal Assessments also feed the per-standard figures and get
+their own summary against the real pass mark.
+
+WEAK_MAX sits just under the real Formal Assessment pass mark (15/20 = 75%, LVV ORS
+Chapter 5, 10.3(2)(a)): anything that would not pass the real test is flagged.
 """
+import math
 from collections import defaultdict
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.enhanced import PracticeExam, ExamStatus
 from app.models.quiz import QuizResult, Standard
 from app.models.user import User
 from app.services.auth.jwt import get_current_user
+from app.services.quiz.grading import is_answer_correct
+from app.api.practice_exam import FORMAL_MODE, FORMAL_PASS_CORRECT, FORMAL_QUESTIONS
 
 router = APIRouter(prefix="/api/report", tags=["Report Card"])
 
 MIN_QUIZZES = 5
-WEAK_MAX = 69.0       # 69% or less => needs work
+PASS_MARK = 75.0      # real Formal Assessment written test: 15 of 20
+WEAK_MAX = 74.0       # below the pass mark => needs work
 MASTERY_MIN = 80.0
+MIN_EXAM_QUESTIONS_PER_STANDARD = 2   # too few questions on a standard says little
 MAX_MISSED_PER_SUBJECT = 5
+
+
+@dataclass
+class _Entry:
+    """One scored attempt on a standard — a quiz result or a standard's slice of a
+    mock exam — in the shape the helpers below need."""
+    score: float
+    answers: Any
+    created_at: Any
+
+
+def _when(dt: Optional[datetime]) -> datetime:
+    """Naive-UTC timestamp usable as a sort key whether the DB gave aware or naive."""
+    if dt is None:
+        return datetime.min
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
+def _exam_entries(exam: PracticeExam) -> Dict[str, "_Entry"]:
+    """Split a completed mock exam into per-standard attempts, with each missed
+    question in the same shape quiz answers use."""
+    per: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"right": 0, "n": 0, "answers": []})
+    given = exam.answers if isinstance(exam.answers, dict) else {}
+    for q in exam.questions or []:
+        sn = q.get("standard_number")
+        if not sn:
+            continue
+        ua = str(given.get(str(q.get("question_id")), "") or "")
+        ok = is_answer_correct(q, ua)
+        bucket = per[sn]
+        bucket["n"] += 1
+        bucket["right"] += ok
+        if not ok:
+            bucket["answers"].append({
+                "question": q.get("question"),
+                "userAnswer": ua,
+                "correctAnswer": q.get("correct_answer", ""),
+                "isCorrect": False,
+                "explanation": q.get("explanation", ""),
+            })
+    return {
+        sn: _Entry(b["right"] / b["n"] * 100, b["answers"], exam.completed_at or exam.started_at)
+        for sn, b in per.items() if b["n"] >= MIN_EXAM_QUESTIONS_PER_STANDARD
+    }
 
 
 def letter_grade(pct: float) -> str:
@@ -35,7 +91,7 @@ def _avg(values: List[float]) -> float:
     return round(sum(values) / len(values), 1) if values else 0.0
 
 
-def _missed_questions(results: List[QuizResult]) -> List[dict]:
+def _missed_questions(results: List[Any]) -> List[dict]:
     """Missed questions across a set of results (oldest-first input), newest first, de-duplicated."""
     seen, missed = set(), []
     for r in reversed(results):
@@ -56,7 +112,7 @@ def _missed_questions(results: List[QuizResult]) -> List[dict]:
     return missed[:MAX_MISSED_PER_SUBJECT]
 
 
-def _subject_stats(label: str, results: List[QuizResult]) -> dict:
+def _subject_stats(label: str, results: List[Any]) -> dict:
     # `results` arrive oldest-first (see build_report_card's query ordering).
     scores = [r.score for r in results]
     avg = _avg(scores)
@@ -80,6 +136,25 @@ def _study_hint(subject: dict, standard: Optional[Standard]) -> str:
     return f"{where} and focus on the questions you missed below, then try a fresh quiz."
 
 
+def _mock_exam_summary(exams: List[PracticeExam]) -> dict:
+    """Mock Formal Assessments against the real pass mark (15 of 20)."""
+    attempts = [{
+        "score": round(e.score or 0, 1),
+        "correct": e.correct_answers or 0,
+        "total": e.total_questions or 0,
+        "passed": (e.correct_answers or 0) >= min(e.total_questions or 0,
+                                                  math.ceil((e.total_questions or 0) * PASS_MARK / 100)),
+        "completed_at": e.completed_at.isoformat() if e.completed_at else None,
+    } for e in exams[-5:]]
+    return {
+        "attempts": len(exams),
+        "pass_rule": f"{FORMAL_PASS_CORRECT} of {FORMAL_QUESTIONS} correct in 30 minutes",
+        "best": max((e.score or 0 for e in exams), default=None),
+        "recent": list(reversed(attempts)),
+        "passes": sum(a["passed"] for a in attempts),
+    }
+
+
 def build_report_card(user: User, db: Session) -> dict:
     results: List[QuizResult] = (
         db.query(QuizResult).filter(QuizResult.user_id == user.id)
@@ -95,21 +170,35 @@ def build_report_card(user: User, db: Session) -> dict:
         }
 
     standards: Dict[int, Standard] = {s.id: s for s in db.query(Standard).all()}
+    by_number = {s.standard_number: s for s in standards.values()}
     overall = _avg([r.score for r in results])
 
-    by_standard: Dict[int, List[QuizResult]] = defaultdict(list)
-    by_category: Dict[str, List[QuizResult]] = defaultdict(list)
+    exams: List[PracticeExam] = (
+        db.query(PracticeExam)
+        .filter(PracticeExam.user_id == user.id, PracticeExam.status == ExamStatus.COMPLETED.value,
+                PracticeExam.description == FORMAL_MODE)
+        .order_by(PracticeExam.completed_at.asc()).all()
+    )
+
+    by_standard: Dict[int, List[Any]] = defaultdict(list)
+    by_category: Dict[str, List[Any]] = defaultdict(list)
+
+    def add(std: Optional[Standard], entry: Any):
+        if std:
+            by_standard[std.id].append(entry)
+            by_category[std.category or "Uncategorized"].append(entry)
+
     for r in results:
-        std = standards.get(r.standard_id)
-        if not std:
-            continue
-        by_standard[std.id].append(r)
-        by_category[std.category or "Uncategorized"].append(r)
+        add(standards.get(r.standard_id), r)
+    for exam in exams:
+        for sn, entry in _exam_entries(exam).items():
+            add(by_number.get(sn), entry)
 
     # Per-standard breakdown is what drives practice targets; categories give the
     # big-picture "which subject area" view.
     standard_rows = []
     for sid, rs in by_standard.items():
+        rs.sort(key=lambda e: _when(e.created_at))
         std = standards[sid]
         row = _subject_stats(std.title, rs)
         row.update({"standard_number": std.standard_number, "category": std.category})
@@ -120,7 +209,7 @@ def build_report_card(user: User, db: Session) -> dict:
     standard_rows.sort(key=lambda r: r["average"])
 
     category_rows = sorted(
-        (_subject_stats(cat, rs) for cat, rs in by_category.items()),
+        (_subject_stats(cat, sorted(rs, key=lambda e: _when(e.created_at))) for cat, rs in by_category.items()),
         key=lambda r: r["average"],
     )
 
@@ -136,11 +225,12 @@ def build_report_card(user: User, db: Session) -> dict:
     needs_support = overall <= WEAK_MAX
 
     if needs_support:
-        summary = (f"Your average is {overall}% across {total} quizzes. Below are the subjects "
-                   "to focus on, with hints from questions you missed.")
+        summary = (f"Your average is {overall}% across {total} quizzes — below the {int(PASS_MARK)}% "
+                   "you'd need to pass the real written test. Focus on the subjects below, using the "
+                   "hints from questions you missed.")
     elif weak:
-        summary = (f"Solid overall ({overall}%), but {len(weak)} standard(s) are at or below "
-                   f"{int(WEAK_MAX)}%. Targeted practice there will round you out.")
+        summary = (f"Solid overall ({overall}%), but {len(weak)} standard(s) are below the "
+                   f"{int(PASS_MARK)}% real-exam pass mark. Targeted practice there will round you out.")
     else:
         summary = f"Great work — {overall}% overall with no weak subjects."
 
@@ -152,7 +242,9 @@ def build_report_card(user: User, db: Session) -> dict:
         "needs_support": needs_support,
         "summary": summary,
         "trend": trend,
+        "pass_mark": PASS_MARK,
         "weak_threshold": WEAK_MAX,
+        "mock_exams": _mock_exam_summary(exams),
         "categories": category_rows,
         "standards": standard_rows,
         "focus_areas": weak,

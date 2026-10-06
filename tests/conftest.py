@@ -13,3 +13,10 @@ def _no_live_llm(monkeypatch):
         monkeypatch.setattr(ai_service, "_openai_ready", lambda: False)
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _no_pdf_refresh_loop(monkeypatch):
+    """The startup PDF freshness loop does network I/O; keep it off in tests."""
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "PDF_REFRESH_ENABLED", False)

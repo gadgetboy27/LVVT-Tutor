@@ -1267,3 +1267,19 @@ body {
     background: #fff8e1; border: 1px solid var(--warning); border-radius: 10px;
     padding: 12px 16px; margin-bottom: 16px;
 }
+
+/* Mock exam */
+.mock-card { background: white; border-radius: 12px; padding: 20px; margin: 16px 0; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+.mock-rules { margin: 0 0 16px 20px; line-height: 1.8; }
+.mock-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.mock-timer { font-variant-numeric: tabular-nums; font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+.mock-timer.low { color: var(--danger); }
+.mock-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.mock-dot { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--gray-light); background: white; cursor: pointer; }
+.mock-dot.answered { background: var(--secondary); color: white; border-color: var(--secondary); }
+.mock-dot.current { outline: 2px solid var(--primary); }
+.mock-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+.mock-review { margin-left: 20px; }
+.mock-review li { margin-bottom: 14px; padding-left: 8px; border-left: 4px solid var(--gray-light); }
+.mock-review li.ok { border-left-color: var(--success); }
+.mock-review li.bad { border-left-color: var(--danger); }

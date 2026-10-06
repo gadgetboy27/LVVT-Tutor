@@ -50,23 +50,31 @@ def chunk_text(text: str, chunk_size: int = 1500, overlap: int = 200) -> List[st
         start = end - overlap
     return chunks
 
-def index_pdf_to_vectordb(standard_number: str, title: str, pdf_url: str, category: str) -> Dict:
+def index_pdf_to_vectordb(standard_number: str, title: str, pdf_url: str, category: str,
+                          refresh: bool = False, expected_hash: Optional[str] = None) -> Dict:
+    """Index a standard's PDF into the vector store.
+
+    refresh=True bypasses the on-disk cache and re-downloads. If the download's
+    sha256 equals `expected_hash` nothing is re-indexed (result has unchanged=True);
+    otherwise the standard's old chunks are replaced only once new text has been
+    extracted, so a failed refresh never wipes a working index."""
     ensure_cache_dir()
     
     url_hash = hashlib.md5(pdf_url.encode()).hexdigest()[:8]
     cache_path = os.path.join(PDF_CACHE_DIR, f"{url_hash}.pdf")
     
-    if os.path.exists(cache_path):
+    if not refresh and os.path.exists(cache_path):
         with open(cache_path, 'rb') as f:
             pdf_content = f.read()
     else:
         pdf_content = download_pdf(pdf_url)
-        if pdf_content:
-            with open(cache_path, 'wb') as f:
-                f.write(pdf_content)
     
     if not pdf_content:
         return {"success": False, "error": "Failed to download PDF"}
+
+    content_hash = hashlib.sha256(pdf_content).hexdigest()
+    if refresh and expected_hash and content_hash == expected_hash:
+        return {"success": True, "unchanged": True, "content_hash": content_hash}
     
     text = extract_text_from_pdf(pdf_content)
     if not text:
@@ -76,8 +84,14 @@ def index_pdf_to_vectordb(standard_number: str, title: str, pdf_url: str, catego
     if not chunks:
         return {"success": False, "error": "No text chunks extracted"}
     
+    if refresh or not os.path.exists(cache_path):
+        with open(cache_path, 'wb') as f:
+            f.write(pdf_content)
+
     client = get_chroma_client()
     collection = get_or_create_collection(client)
+    if refresh:
+        collection.delete(where={"standard_number": standard_number})
     
     documents = []
     metadatas = []
@@ -101,7 +115,8 @@ def index_pdf_to_vectordb(standard_number: str, title: str, pdf_url: str, catego
     return {
         "success": True,
         "chunks_indexed": len(chunks),
-        "text_length": len(text)
+        "text_length": len(text),
+        "content_hash": content_hash,
     }
 
 def backfill_pdf_urls() -> Dict:

@@ -77,6 +77,7 @@
                 <button class="nav-btn" data-view="learning-paths">Learning Paths</button>
                 <button class="nav-btn" data-view="scenarios">Scenarios</button>
                 <button class="nav-btn" data-view="readiness">Readiness Check</button>
+                <button class="nav-btn" data-view="mock-exam">Mock Exam</button>
                 <button class="nav-btn" data-view="report-card">Report Card</button>
             </nav>
 
@@ -282,6 +283,40 @@
                     </div>
                     <p id="readiness-message">Complete more training to build your certification readiness</p>
                 </div>
+            </div>
+
+            <div id="mock-exam" class="mock-exam view-section hidden">
+                <h2>Mock Formal Assessment</h2>
+                <p class="subtitle">Modelled on the written test in the LVV Certifier Formal Assessment (LVV ORS Chapter 5)</p>
+
+                <div id="mock-intro" class="mock-card">
+                    <ul class="mock-rules">
+                        <li><strong>20</strong> multiple-choice questions, drawn across the standards</li>
+                        <li><strong>30 minutes</strong> — the exam submits itself when time runs out</li>
+                        <li><strong>Pass: 15 of 20</strong> (75%) — the same mark as the real test</li>
+                        <li><strong>Closed book</strong> — no documents or notes. Treat it like the real thing</li>
+                    </ul>
+                    <p id="mock-guest-note" class="guest-note hidden">The mock exam needs an account — attempts are stored so they can feed your Report Card. Create a free account to sit it.</p>
+                    <button id="mock-start-btn" class="btn btn-primary">Start Mock Exam</button>
+                    <p id="mock-error" class="error-message hidden"></p>
+                </div>
+
+                <div id="mock-run" class="mock-card hidden">
+                    <div class="mock-bar">
+                        <span id="mock-progress">Question 1 of 20</span>
+                        <span id="mock-timer" class="mock-timer">30:00</span>
+                    </div>
+                    <div id="mock-nav" class="mock-nav"></div>
+                    <p id="mock-question" class="question-text"></p>
+                    <div id="mock-options" class="answer-options"></div>
+                    <div class="mock-actions">
+                        <button id="mock-prev-btn" class="btn btn-secondary">Previous</button>
+                        <button id="mock-next-btn" class="btn btn-secondary">Next</button>
+                        <button id="mock-submit-btn" class="btn btn-primary">Submit Exam</button>
+                    </div>
+                </div>
+
+                <div id="mock-result" class="mock-card hidden"></div>
             </div>
 
             <div id="report-card" class="report-card view-section hidden">

@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = os.environ.get("OPENAI_BASE_URL") or os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL", "")
     OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
+    # Keep indexed LVVTA PDFs current: on startup and then every N hours, re-check
+    # each source PDF and re-index any that changed upstream.
+    PDF_REFRESH_ENABLED: bool = os.environ.get("PDF_REFRESH_ENABLED", "true").lower() in ("1", "true", "yes")
+    PDF_REFRESH_INTERVAL_HOURS: float = float(os.environ.get("PDF_REFRESH_INTERVAL_HOURS", "24"))
+
     LVVTA_BASE_URL: str = "https://www.lvvta.org.nz"
     CHROMA_PERSIST_DIR: str = "./chroma_db"
     

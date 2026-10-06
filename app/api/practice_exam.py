@@ -2,16 +2,29 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
+import math
+import random
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.enhanced import PracticeExam, ExamStatus
 from app.models.quiz import Standard
 from app.models.user import User
 from app.services.auth.jwt import get_current_user
-from app.services.rag.vector_store import get_chroma_client, get_or_create_collection
+from app.services.rag.vector_store import get_chroma_client, get_or_create_collection, query_documents
 from app.services.rag.ai_service import generate_quiz_questions
+from app.services.quiz.grading import correct_index, is_answer_correct
 
 router = APIRouter(prefix="/api/practice-exam", tags=["Practice Exam"])
+
+# The real LVV Certifier Formal Assessment written test (LVV ORS Chapter 5, 10.3(2)(a)):
+# 20 closed-book multiple-choice questions in 30 minutes, at least 15 correct to pass.
+FORMAL_MODE = "formal-mock"
+FORMAL_QUESTIONS = 20
+FORMAL_MINUTES = 30
+FORMAL_PASS_CORRECT = 15
+FORMAL_PASS_PCT = FORMAL_PASS_CORRECT / FORMAL_QUESTIONS * 100   # 75
+LEGACY_PASS_PCT = 80
+LATE_GRACE_SECONDS = 30   # network slack before a late submission fails
 
 
 class ExamConfig(BaseModel):
@@ -35,6 +48,94 @@ class ExamResponse(BaseModel):
 class SubmitExamRequest(BaseModel):
     exam_id: int
     answers: dict
+
+
+def _generate_formal_questions(db: Session, total: int) -> List[dict]:
+    """`total` MCQs spread across standards that have indexed content, so the mock
+    covers the whole syllabus the way the real test samples it."""
+    collection = get_or_create_collection(get_chroma_client())
+    standards = db.query(Standard).all()
+    random.shuffle(standards)
+
+    questions: List[dict] = []
+    seen = set()
+    # Round 1 samples ~5 standards; later rounds top up (across the same standards)
+    # when a corpus is small or the AI returned fewer usable questions than asked.
+    for round_no in range(3):
+        for std in standards:
+            need = total - len(questions)
+            if need <= 0:
+                break
+            per_standard = max(3, math.ceil(total / 5)) if round_no == 0 else max(2, need)
+            try:
+                results = query_documents(
+                    collection, f"LVV Standard {std.standard_number} requirements specifications",
+                    n_results=8, where={"standard_number": std.standard_number},
+                )
+                docs = (results.get("documents") or [[]])[0]
+                if not docs:
+                    continue
+                generated = generate_quiz_questions("\n\n".join(docs), std.standard_number, per_standard)
+            except Exception as e:
+                print(f"Formal mock: skipping {std.standard_number}: {e}")
+                continue
+            for q in generated or []:
+                text = (q.get("question") or "").strip()
+                if len(q.get("options") or []) < 2 or correct_index(q) < 0 or text.lower() in seen:
+                    continue
+                seen.add(text.lower())
+                q["standard_number"] = std.standard_number
+                q["standard_title"] = std.title
+                questions.append(q)
+        if len(questions) >= total:
+            break
+
+    random.shuffle(questions)
+    questions = questions[:total]
+    for i, q in enumerate(questions):
+        q["question_id"] = i + 1
+    return questions
+
+
+@router.post("/formal/start")
+def start_formal_mock(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Mock of the real written test: 20 closed-book MCQs, 30 minutes, 15 to pass."""
+    questions = _generate_formal_questions(db, FORMAL_QUESTIONS)
+    if not questions:
+        raise HTTPException(
+            status_code=503,
+            detail="Couldn't generate exam questions right now (AI service or indexed standards unavailable). Try again shortly.",
+        )
+
+    required = min(len(questions), math.ceil(len(questions) * FORMAL_PASS_PCT / 100))
+    exam = PracticeExam(
+        user_id=current_user.id,
+        title="Mock Formal Assessment",
+        description=FORMAL_MODE,
+        time_limit_minutes=FORMAL_MINUTES,
+        total_questions=len(questions),
+        standards_included=sorted({q["standard_number"] for q in questions}),
+        questions=questions,
+        status=ExamStatus.IN_PROGRESS.value,
+    )
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+
+    hidden = {"correct_answer", "explanation"}   # never ship the answer key to the browser
+    return {
+        "id": exam.id,
+        "title": exam.title,
+        "time_limit_minutes": FORMAL_MINUTES,
+        "time_remaining_seconds": FORMAL_MINUTES * 60,
+        "total_questions": len(questions),
+        "required_correct": required,
+        "pass_mark_pct": FORMAL_PASS_PCT,
+        "questions": [{k: v for k, v in q.items() if k not in hidden} for q in questions],
+    }
 
 
 @router.post("/start", response_model=ExamResponse)
@@ -159,23 +260,39 @@ async def submit_practice_exam(
     if exam.status == ExamStatus.COMPLETED.value:
         raise HTTPException(status_code=400, detail="Exam already submitted")
     
+    formal = exam.description == FORMAL_MODE
     correct = 0
     results = []
     
     for q in exam.questions:
         q_id = str(q['question_id'])
-        user_answer = submission.answers.get(q_id, "")
-        is_correct = user_answer.lower().strip() == q.get('correct_answer', '').lower().strip()
+        user_answer = str(submission.answers.get(q_id, "") or "")
+        is_correct = is_answer_correct(q, user_answer)
         if is_correct:
             correct += 1
         results.append({
             "question_id": q['question_id'],
+            "question": q.get('question'),
+            "options": q.get('options'),
+            "standard_number": q.get('standard_number'),
             "user_answer": user_answer,
             "correct_answer": q.get('correct_answer'),
+            "explanation": q.get('explanation'),
             "is_correct": is_correct
         })
     
-    score = (correct / exam.total_questions * 100) if exam.total_questions > 0 else 0
+    total = exam.total_questions or 0
+    score = (correct / total * 100) if total > 0 else 0
+
+    elapsed = (datetime.utcnow() - exam.started_at.replace(tzinfo=None)).total_seconds()
+    timed_out = elapsed > exam.time_limit_minutes * 60 + LATE_GRACE_SECONDS
+
+    if formal:
+        required = min(total, math.ceil(total * FORMAL_PASS_PCT / 100))
+        passed = correct >= required and not timed_out
+    else:
+        required = math.ceil(total * LEGACY_PASS_PCT / 100)
+        passed = score >= LEGACY_PASS_PCT
     
     exam.answers = submission.answers
     exam.correct_answers = correct
@@ -188,9 +305,11 @@ async def submit_practice_exam(
         "exam_id": exam.id,
         "score": score,
         "correct_answers": correct,
-        "total_questions": exam.total_questions,
+        "total_questions": total,
+        "required_correct": required,
+        "timed_out": timed_out,
         "results": results,
-        "passed": score >= 80
+        "passed": passed
     }
 
 
@@ -201,7 +320,7 @@ async def get_exam_history(
 ):
     exams = db.query(PracticeExam).filter(
         PracticeExam.user_id == current_user.id
-    ).order_by(PracticeExam.created_at.desc()).limit(20).all()
+    ).order_by(PracticeExam.started_at.desc()).limit(20).all()
     
     return [{
         "id": e.id,

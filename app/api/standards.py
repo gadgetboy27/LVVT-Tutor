@@ -133,6 +133,25 @@ def get_standard_content(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/refresh-pdfs")
+def refresh_pdfs(
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-check every source PDF against lvvta.org.nz and re-index any that changed."""
+    from app.services.rag.pdf_refresh import refresh_stale_pdfs
+    background_tasks.add_task(refresh_stale_pdfs, force)
+    return {"message": "PDF refresh started in background", "force": force}
+
+
+@router.get("/refresh-status")
+def refresh_status():
+    """Result of the most recent PDF freshness check."""
+    from app.services.rag.pdf_refresh import last_refresh
+    return last_refresh()
+
+
 @router.get("/{standard_number}", response_model=StandardDetailResponse)
 def get_standard_detail(
     standard_number: str,
