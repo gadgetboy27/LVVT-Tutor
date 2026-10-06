@@ -36,9 +36,9 @@ def _avg(values: List[float]) -> float:
 
 
 def _missed_questions(results: List[QuizResult]) -> List[dict]:
-    """Missed questions across a set of results, newest first, de-duplicated."""
+    """Missed questions across a set of results (oldest-first input), newest first, de-duplicated."""
     seen, missed = set(), []
-    for r in sorted(results, key=lambda r: r.created_at or 0, reverse=True):
+    for r in reversed(results):
         answers = r.answers if isinstance(r.answers, list) else []
         for a in answers:
             if not isinstance(a, dict) or a.get("isCorrect", a.get("is_correct", True)):
@@ -56,8 +56,9 @@ def _missed_questions(results: List[QuizResult]) -> List[dict]:
     return missed[:MAX_MISSED_PER_SUBJECT]
 
 
-def _subject_stats(label: str, results: List[QuizResult], standards: Optional[Standard] = None) -> dict:
-    scores = [r.score for r in sorted(results, key=lambda r: r.created_at or 0)]
+def _subject_stats(label: str, results: List[QuizResult]) -> dict:
+    # `results` arrive oldest-first (see build_report_card's query ordering).
+    scores = [r.score for r in results]
     avg = _avg(scores)
     return {
         "name": label,
@@ -110,7 +111,7 @@ def build_report_card(user: User, db: Session) -> dict:
     standard_rows = []
     for sid, rs in by_standard.items():
         std = standards[sid]
-        row = _subject_stats(std.title, rs, std)
+        row = _subject_stats(std.title, rs)
         row.update({"standard_number": std.standard_number, "category": std.category})
         if row["is_weak"]:
             row["missed_questions"] = _missed_questions(rs)
