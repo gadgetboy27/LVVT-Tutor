@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Union
 from app.core.database import get_db
 from app.models.quiz import Standard, QuizResult, SavedQuizState
 from app.models.user import User
@@ -40,7 +40,8 @@ class QuizSubmitRequest(BaseModel):
     score: float = 0
     total_questions: int = 0
     correct_answers: int = 0
-    answers: dict = {}
+    # Per-question records (list) from the frontend; legacy callers sent a dict.
+    answers: Union[list, dict] = {}
 
 
 class EvaluateAnswerRequest(BaseModel):
@@ -190,8 +191,9 @@ def submit_quiz(
     ).first()
     
     total_questions = request.total_questions if request.total_questions > 0 else len(request.answers)
+    answer_items = request.answers if isinstance(request.answers, list) else list(request.answers.values())
     correct_answers = request.correct_answers if request.correct_answers > 0 else sum(
-        1 for q, a in request.answers.items() if a.get('is_correct', False)
+        1 for a in answer_items if isinstance(a, dict) and (a.get('is_correct') or a.get('isCorrect'))
     )
     score = request.score if request.score > 0 else (
         (correct_answers / total_questions * 100) if total_questions > 0 else 0

@@ -58,15 +58,26 @@
                     <button type="submit" class="btn btn-primary btn-full">Create Account</button>
                     <p id="register-error" class="error-message hidden"></p>
                 </form>
+
+                <div class="guest-option">
+                    <button id="guest-btn" type="button" class="btn btn-secondary btn-full">Continue as guest</button>
+                    <p class="guest-note">Guests can take quizzes, but <strong>results are not saved</strong> and there is no
+                    Report Card. Create a free account to track progress across quizzes and get a personalised study plan.</p>
+                </div>
             </div>
         </div>
 
         <main id="main-content" class="main-content hidden">
+            <div id="guest-banner" class="guest-banner hidden">
+                <span>You're browsing as a guest — quiz results and your Report Card won't be saved.</span>
+                <button id="guest-signup-btn" class="btn btn-primary">Create free account</button>
+            </div>
             <nav class="main-nav">
                 <button class="nav-btn active" data-view="dashboard">Dashboard</button>
                 <button class="nav-btn" data-view="learning-paths">Learning Paths</button>
                 <button class="nav-btn" data-view="scenarios">Scenarios</button>
                 <button class="nav-btn" data-view="readiness">Readiness Check</button>
+                <button class="nav-btn" data-view="report-card">Report Card</button>
             </nav>
 
             <div id="dashboard" class="dashboard view-section">
@@ -271,6 +282,12 @@
                     </div>
                     <p id="readiness-message">Complete more training to build your certification readiness</p>
                 </div>
+            </div>
+
+            <div id="report-card" class="report-card view-section hidden">
+                <h2>Report Card</h2>
+                <p class="subtitle">Your results across quizzes, with a plan for the subjects that need work</p>
+                <div id="report-card-body"></div>
             </div>
 
             <div id="document-viewer" class="document-viewer hidden">

@@ -11,6 +11,7 @@ let currentTeachStandard = null;
 let currentTeachTree = null;
 let userStats = { quizzes: 0, score: 0, mastered: 0 };
 let savedState = null;
+let isGuest = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeApp();
@@ -57,6 +58,11 @@ function setupEventListeners() {
     document.getElementById('login-form').addEventListener('submit', handleLogin);
     document.getElementById('register-form').addEventListener('submit', handleRegister);
     document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    document.getElementById('guest-btn').addEventListener('click', continueAsGuest);
+    document.getElementById('guest-signup-btn').addEventListener('click', () => {
+        handleLogout();
+        switchAuthTab('register');
+    });
     document.getElementById('back-to-categories').addEventListener('click', showCategories);
     document.getElementById('submit-answer-btn').addEventListener('click', submitAnswer);
     document.getElementById('next-question-btn').addEventListener('click', nextQuestion);
@@ -188,7 +194,18 @@ async function handleRegister(e) {
     }
 }
 
+function continueAsGuest() {
+    isGuest = true;
+    authToken = null;
+    currentUser = null;
+    document.getElementById('username-display').textContent = 'Guest';
+    document.getElementById('guest-banner').classList.remove('hidden');
+    showMainContent();
+}
+
 function handleLogout() {
+    isGuest = false;
+    document.getElementById('guest-banner').classList.add('hidden');
     localStorage.removeItem('lvv_token');
     localStorage.removeItem('lvv_quiz_state');
     localStorage.removeItem('lvv_user');
@@ -247,11 +264,70 @@ function switchView(view) {
     if (view === 'readiness') {
         updateReadinessScores();
     }
+    if (view === 'report-card') {
+        loadReportCard();
+    }
+}
+
+async function loadReportCard() {
+    const body = document.getElementById('report-card-body');
+    body.innerHTML = '<p>Loading your report card...</p>';
+    if (isGuest) {
+        body.innerHTML = `<div class="rc-locked"><h3>Report Card needs an account</h3>
+            <p>As a guest your quiz results aren't saved, so there's nothing to report on.
+            Create a free account to track your scores and get a personalised study plan after 5 quizzes.</p></div>`;
+        return;
+    }
+    try {
+        const response = await fetch(`${API_BASE}/api/report/card`, { headers: authHeaders() });
+        if (!response.ok) throw new Error('Could not load report card');
+        body.innerHTML = renderReportCard(await response.json());
+        body.querySelectorAll('.practice-btn').forEach(btn => {
+            btn.addEventListener('click', () => startQuiz(btn.dataset.standard, btn.dataset.title));
+        });
+    } catch (e) {
+        body.innerHTML = `<p class="error-message">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function renderReportCard(r) {
+    if (!r.eligible) {
+        return `<div class="rc-locked"><h3>Report card unlocks after ${r.min_quizzes} quizzes</h3>
+            <p>You've completed ${r.quizzes_completed}. Take ${r.quizzes_needed} more to see where to focus.</p></div>`;
+    }
+    const trend = r.trend
+        ? `<span class="rc-trend ${r.trend.direction}">${r.trend.direction === 'up' ? '▲' : r.trend.direction === 'down' ? '▼' : '■'} ${Math.abs(r.trend.change)} pts vs earlier</span>`
+        : '';
+    const row = s => `<div class="rc-row ${s.is_weak ? 'weak' : ''}">
+        <span class="rc-name">${escapeHtml(s.name)}</span>
+        <div class="meter"><div class="meter-fill" style="width:${s.average}%"></div></div>
+        <span class="rc-score">${s.average}% · ${s.grade}</span></div>`;
+
+    const focus = r.focus_areas.map(f => `
+        <div class="rc-focus">
+            <h4>${escapeHtml(f.name)} <span class="rc-score">${f.average}% over ${f.attempts} quiz${f.attempts === 1 ? '' : 'zes'}</span></h4>
+            <p class="rc-hint">${escapeHtml(f.hint)}</p>
+            ${(f.missed_questions || []).length ? `<ul class="rc-missed">${f.missed_questions.map(m => `
+                <li><strong>${escapeHtml(m.question)}</strong>
+                    <div>Correct answer: ${escapeHtml(m.correct_answer)}</div>
+                    ${m.hint ? `<div class="rc-hint">${escapeHtml(m.hint)}</div>` : ''}</li>`).join('')}</ul>` : ''}
+            <button class="btn btn-primary practice-btn" data-standard="${escapeHtml(f.standard_number)}" data-title="${escapeHtml(f.name)}">Practice with a new quiz</button>
+        </div>`).join('');
+
+    return `
+        <div class="rc-summary ${r.needs_support ? 'needs-support' : ''}">
+            <div class="rc-grade">${r.grade}</div>
+            <div><h3>${r.overall_average}% overall ${trend}</h3><p>${escapeHtml(r.summary)}</p></div>
+        </div>
+        <h3>By subject area</h3>${r.categories.map(row).join('')}
+        <h3>By standard</h3>${r.standards.map(row).join('')}
+        ${focus ? `<h3>Where to focus</h3>${focus}` : ''}`;
 }
 
 async function loadProgress() {
     // Source of truth is the server: aggregate the user's saved quiz results.
     try {
+        if (isGuest) throw new Error('guest');
         const response = await fetch(`${API_BASE}/api/quiz/history`, { headers: authHeaders() });
         if (response.ok) {
             const history = await response.json();
@@ -261,7 +337,7 @@ async function loadProgress() {
             userStats = { quizzes, score: avg, mastered };
         }
     } catch (e) {
-        console.error('loadProgress error:', e);
+        if (!isGuest) console.error('loadProgress error:', e);
     }
 
     document.getElementById('total-quizzes').textContent = userStats.quizzes;
@@ -813,6 +889,10 @@ function showQuizComplete() {
     const breakdown = document.getElementById('score-breakdown');
     breakdown.innerHTML = `<p>You got ${totalScore} out of ${quizAnswers.length} questions correct</p>`;
     
+    if (isGuest) {
+        breakdown.innerHTML += '<p class="guest-note">Guest mode: this result was not saved. Create an account to track your progress and unlock your Report Card.</p>';
+    }
+
     const masteryMsg = document.getElementById('mastery-message');
     if (percentage >= 80) {
         masteryMsg.textContent = 'Excellent! You have demonstrated mastery of this topic.';
@@ -827,7 +907,7 @@ function showQuizComplete() {
 
 async function persistQuizResult(percentage, correct) {
     // Scenario practice isn't a real standard — don't record it as a quiz result.
-    if (currentQuiz.standardNumber && currentQuiz.standardNumber !== 'SCENARIO') {
+    if (!isGuest && currentQuiz.standardNumber && currentQuiz.standardNumber !== 'SCENARIO') {
         try {
             await fetch(`${API_BASE}/api/quiz/submit`, {
                 method: 'POST',
@@ -837,7 +917,7 @@ async function persistQuizResult(percentage, correct) {
                     score: percentage,
                     total_questions: quizAnswers.length,
                     correct_answers: correct,
-                    answers: {}
+                    answers: quizAnswers
                 })
             });
         } catch (e) {

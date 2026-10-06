@@ -19,6 +19,7 @@ from app.api.offline import router as offline_router
 from app.api.pdf_viewer import router as pdf_viewer_router
 from app.api.analytics import router as analytics_router
 from app.api.teach import router as teach_router
+from app.api.report import router as report_router
 from app.models.quiz import Standard
 
 from app.models import enhanced, analytics
@@ -119,6 +120,7 @@ app.include_router(offline_router)
 app.include_router(pdf_viewer_router)
 app.include_router(analytics_router)
 app.include_router(teach_router)
+app.include_router(report_router)
 
 
 @app.middleware("http")
