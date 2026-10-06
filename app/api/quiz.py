@@ -1,3 +1,4 @@
+import math
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict
@@ -12,6 +13,7 @@ from app.services.rag.vector_store import (
     query_documents
 )
 from app.services.rag.ai_service import generate_quiz_questions, evaluate_answer
+from app.services.quiz.error_rating import curated_questions
 
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
 
@@ -144,6 +146,13 @@ def generate_quiz(
     if not standard:
         raise HTTPException(status_code=404, detail="Standard not found")
 
+    # Source-cited questions on how certifiers are really assessed (ORS Ch.5 / Ch.11) —
+    # capped at ~60% so repeat attempts still get fresh AI questions.
+    curated = [QuizQuestion(**q) for q in curated_questions(request.standard_number, math.ceil(request.num_questions * 0.6))]
+    num_needed = request.num_questions - len(curated)
+    if num_needed <= 0:
+        return QuizGenerateResponse(standard_number=request.standard_number, questions=curated)
+
     chroma_client = get_chroma_client()
     collection = get_or_create_collection(chroma_client)
 
@@ -163,7 +172,7 @@ def generate_quiz(
             questions_data = generate_quiz_questions(
                 context,
                 request.standard_number,
-                request.num_questions
+                num_needed
             )
             if questions_data:
                 questions = [QuizQuestion(**q) for q in questions_data]
@@ -172,11 +181,11 @@ def generate_quiz(
 
     # No indexed content or the AI service failed -> deterministic fallback.
     if not questions:
-        questions = _fallback_quiz_questions(standard, db, request.num_questions)
+        questions = _fallback_quiz_questions(standard, db, num_needed)
 
     return QuizGenerateResponse(
         standard_number=request.standard_number,
-        questions=questions
+        questions=curated + questions
     )
 
 

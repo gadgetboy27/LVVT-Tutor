@@ -76,9 +76,11 @@ def seed_initial_standards():
 async def _pdf_refresh_loop():
     """Re-check source PDFs shortly after boot, then every PDF_REFRESH_INTERVAL_HOURS."""
     from app.services.rag.pdf_refresh import refresh_stale_pdfs
+    from app.services.rag.pdf_indexer import index_ors_chapters
     await asyncio.sleep(30)  # let startup seeding finish first
     while True:
         try:
+            await asyncio.to_thread(index_ors_chapters)   # picks up any newly added ORS chapter
             result = await asyncio.to_thread(refresh_stale_pdfs)
             print(f"PDF refresh: {result}")
         except Exception as e:

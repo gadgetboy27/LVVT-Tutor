@@ -289,6 +289,36 @@ ORS_CHAPTERS = [
         "category": "Certification Process"
     },
     {
+        "number": "ORS_Chapter_7",
+        "title": "LVV Certifier Conduct and Service",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_7_LVV_Certifier_Conduct_and_Service.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_8",
+        "title": "LVV Certification Inspection Process",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_8_LVV_Certification_Inspection_Process.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_9",
+        "title": "Submission of LVV Certification Files",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_9_Submission_of_LVV_Certification_Files.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_10",
+        "title": "LVV File Review System",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_10_File_Review_System.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_11",
+        "title": "LVV Certifier Error Recording & Reporting",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_11_LVV_Certifier_Error_Recording_Reporting.pdf",
+        "category": "Certification Process"
+    },
+    {
         "number": "ORS_Full",
         "title": "Complete Operating Requirements Schedule",
         "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule.pdf",
@@ -297,14 +327,18 @@ ORS_CHAPTERS = [
 ]
 
 def index_ors_chapters() -> Dict:
+    """Index any ORS chapter not yet processed. Already-indexed chapters are skipped
+    (pdf_refresh keeps those current), so this is cheap to call at every startup."""
     db = SessionLocal()
     results = {"indexed": 0, "failed": 0, "details": []}
     
     try:
         for ors in ORS_CHAPTERS:
             existing = db.query(Standard).filter(Standard.standard_number == ors["number"]).first()
+            if existing and existing.is_processed:
+                continue
             if not existing:
-                new_std = Standard(
+                existing = Standard(
                     standard_number=ors["number"],
                     title=ors["title"],
                     pdf_url=ors["url"],
@@ -312,7 +346,7 @@ def index_ors_chapters() -> Dict:
                     summary=f"Operating Requirements Schedule - {ors['title']}",
                     is_processed=False
                 )
-                db.add(new_std)
+                db.add(existing)
                 db.commit()
             
             print(f"Indexing ORS: {ors['title']}")
@@ -324,8 +358,9 @@ def index_ors_chapters() -> Dict:
             )
             
             if result["success"]:
-                if existing:
-                    existing.is_processed = True
+                existing.is_processed = True
+                if result.get("content_hash"):
+                    existing.content_hash = result["content_hash"]
                 results["indexed"] += 1
                 results["details"].append(f"{ors['title']}: {result['chunks_indexed']} chunks")
             else:

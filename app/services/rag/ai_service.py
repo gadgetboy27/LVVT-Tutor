@@ -124,13 +124,24 @@ Provide a clear, professional answer with specific Standard citations:"""
     return _llm_chat(system_prompt, user_prompt, max_tokens=1000)
 
 
-def generate_quiz_questions(context: str, standard_number: str, num_questions: int = 5) -> List[Dict]:
-    system_prompt = """You are an expert quiz creator for LVV certification training.
-Create multiple choice questions that test the deep understanding required of a professional LVV Certifier.
-Questions must be practical and relevant to real-world certification work."""
+def generate_quiz_questions(context: str, standard_number: str, num_questions: int = 5,
+                            exam_style: bool = False) -> List[Dict]:
+    system_prompt = """You are an expert quiz creator for LVV (Low Volume Vehicle) certifier training in New Zealand.
+The real LVV Certifier assessment tests whether a person can apply the LVV standards to real vehicles with a safety-first
+mindset and follow correct certification procedure. It does not reward memorising trivia.
+Write questions a competent, experienced certifier could answer from sound knowledge of the standard."""
+
+    exam_note = ""
+    if exam_style:
+        exam_note = """
+This is for a CLOSED-BOOK timed exam (like the real Formal Assessment written test). Each question must be answerable
+without looking anything up, in under 90 seconds, and should test one of: general automotive knowledge, mechanical
+knowledge, modification and construction knowledge, or understanding and application of the LVV certification
+requirements. Avoid questions that depend on remembering an obscure figure or table row.
+"""
 
     user_prompt = f"""Based on this content from LVV Standard {standard_number}, create {num_questions} multiple choice questions.
-
+{exam_note}
 CONTENT:
 {context}
 
@@ -145,12 +156,19 @@ Format your response as a JSON array with this structure:
   }}
 ]
 
-Include a mix of:
-- Technical specification questions
-- Certification process questions  
-- Safety compliance questions
+Question mix:
+- About half should be short SCENARIOS requiring a decision, e.g. "A certifier inspects a vehicle where ... What must
+  the certifier do?" or "Which decision is correct?"
+- Technical requirements applied to a concrete case (a specific modification, component or measurement).
+- Certification process and paperwork (which form or step applies, what must be submitted, who decides).
+- Safety-first judgement: when a requirement is not met, or safety is in doubt, what the certifier must do.
 
-Make questions practical and relevant to certification work."""
+Rules:
+- Use ONLY facts stated in the CONTENT. Never invent figures, section numbers or requirements.
+- Exactly one option is clearly correct; the others are plausible mistakes a real applicant might make.
+- No "all of the above" / "none of the above". Keep options similar in length.
+- "correct_answer" is the option letter only.
+- The explanation must say why the right answer is right and cite the section."""
 
     try:
         content = _llm_chat(system_prompt, user_prompt, max_tokens=4000)

@@ -75,7 +75,7 @@ def _generate_formal_questions(db: Session, total: int) -> List[dict]:
                 docs = (results.get("documents") or [[]])[0]
                 if not docs:
                     continue
-                generated = generate_quiz_questions("\n\n".join(docs), std.standard_number, per_standard)
+                generated = generate_quiz_questions("\n\n".join(docs), std.standard_number, per_standard, exam_style=True)
             except Exception as e:
                 print(f"Formal mock: skipping {std.standard_number}: {e}")
                 continue
