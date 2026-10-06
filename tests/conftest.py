@@ -1,3 +1,11 @@
+import os
+
+# Must be set before app.core.config is first imported: module-scoped fixtures
+# (e.g. the e2e TestClient) start the app lifespan before any function-scoped
+# monkeypatch runs, and the PDF refresh loop would otherwise hit the real network
+# and rewrite pdf_cache/ and the vector store.
+os.environ["PDF_REFRESH_ENABLED"] = "false"
+
 import pytest
 
 
