@@ -172,7 +172,8 @@ def generate_quiz(
             questions_data = generate_quiz_questions(
                 context,
                 request.standard_number,
-                num_needed
+                num_needed,
+                standard_title=standard.title,
             )
             if questions_data:
                 questions = [QuizQuestion(**q) for q in questions_data]

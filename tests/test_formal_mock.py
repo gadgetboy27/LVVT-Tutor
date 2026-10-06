@@ -53,7 +53,7 @@ def env(monkeypatch):
 
     calls = {"n": 0}
 
-    def fake_gen(context, standard_number, n, exam_style=False):
+    def fake_gen(context, standard_number, n, exam_style=False, standard_title=None):
         calls["n"] += 1   # distinct text per call, like a real model would vary
         return [{"question": f"{standard_number} question {calls['n']}-{i}?", "options": list(OPTS),
                  "correct_answer": "A", "explanation": "see doc"} for i in range(n)]

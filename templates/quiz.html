@@ -98,8 +98,8 @@
                             <span class="stat-label">Topics Mastered</span>
                         </div>
                         <div class="stat-card">
-                            <span class="stat-value" id="readiness-score">0%</span>
-                            <span class="stat-label">Certification Ready</span>
+                            <span class="stat-value" id="readiness-score">0</span>
+                            <span class="stat-label">Quizzes at 75%+</span>
                         </div>
                     </div>
                 </div>
@@ -220,68 +220,29 @@
             </div>
 
             <div id="readiness" class="readiness view-section hidden">
-                <h2>Certification Readiness Assessment</h2>
-                <p class="subtitle">Evaluate your readiness to apply as an LVV Certifier</p>
-                
-                <div class="readiness-grid">
-                    <div class="competency-card">
-                        <h3>Technical Skills</h3>
-                        <p>Deep understanding of vehicle systems and modifications</p>
-                        <div class="competency-meter">
-                            <div class="meter-fill" id="tech-skills-meter" style="width: 0%"></div>
-                        </div>
-                        <span class="competency-score">0%</span>
-                    </div>
-                    
-                    <div class="competency-card">
-                        <h3>Standards Knowledge</h3>
-                        <p>Understanding of LVV Standards and technical requirements</p>
-                        <div class="competency-meter">
-                            <div class="meter-fill" id="standards-meter" style="width: 0%"></div>
-                        </div>
-                        <span class="competency-score">0%</span>
-                    </div>
-                    
-                    <div class="competency-card">
-                        <h3>ORS Understanding</h3>
-                        <p>Knowledge of Operating Requirements Schedule</p>
-                        <div class="competency-meter">
-                            <div class="meter-fill" id="ors-meter" style="width: 0%"></div>
-                        </div>
-                        <span class="competency-score">0%</span>
-                    </div>
-                    
-                    <div class="competency-card">
-                        <h3>Threshold Decisions</h3>
-                        <p>Ability to determine when certification is required</p>
-                        <div class="competency-meter">
-                            <div class="meter-fill" id="threshold-meter" style="width: 0%"></div>
-                        </div>
-                        <span class="competency-score">0%</span>
-                    </div>
-                    
-                    <div class="competency-card">
-                        <h3>Scenario Performance</h3>
-                        <p>Real-world certification decision making</p>
-                        <div class="competency-meter">
-                            <div class="meter-fill" id="scenario-meter" style="width: 0%"></div>
-                        </div>
-                        <span class="competency-score">0%</span>
-                    </div>
-                    
-                    <div class="competency-card self-assess">
-                        <h3>Self-Assessment</h3>
-                        <p>Complete a self-assessment of the 7 core competencies</p>
-                        <button class="btn btn-secondary" id="self-assess-btn">Take Assessment</button>
-                    </div>
-                </div>
-                
-                <div class="overall-readiness">
-                    <h3>Overall Readiness</h3>
-                    <div class="readiness-circle">
-                        <span id="overall-readiness-score">0%</span>
-                    </div>
-                    <p id="readiness-message">Complete more training to build your certification readiness</p>
+                <h2>Certifier Requirements Check</h2>
+                <p class="subtitle">What LVVTA publishes about becoming an LVV Certifier, next to your real practice results. This is a checklist, not a prediction — LVVTA and NZTA decide at the Pre-assessment and Formal Assessment.</p>
+
+                <div class="rc-focus" id="readiness-practice"></div>
+
+                <h3>Published criteria <span class="rc-score" id="criteria-count"></span></h3>
+                <p class="rc-hint">Tick what you can honestly say is true today. Saved in this browser only.</p>
+                <ul class="criteria-list" id="criteria-list"></ul>
+
+                <h3>What this app can and can't test</h3>
+                <ul class="criteria-list coverage">
+                    <li><strong>Written test</strong> (20 multiple-choice, 30 min, 15 to pass) — <em>practised</em> in Mock Exam.</li>
+                    <li><strong>PowerPoint-based exam</strong> (general automotive, mechanical, modification &amp; construction, and the LVV Certification Manuals) — <em>not available</em>: LVVTA doesn't publish its content. Studying the standards is the preparation.</li>
+                    <li><strong>Practical vehicle inspection</strong> — <em>procedure knowledge only</em> (ORS Chapter 8 quiz). The real assessment is a workshop inspection of a vehicle; nothing here replaces hands-on experience.</li>
+                    <li><strong>Character and co-operation evaluation</strong> — <em>cannot be tested</em> by an app. ORS Chapter 7 (conduct, independence, conflict of interest) shows what is expected.</li>
+                    <li><strong>Experience</strong> — <em>cannot be tested</em>. It is judged at the Pre-assessment, at your premises, by discussing vehicles you have built or modified.</li>
+                </ul>
+
+                <div class="competency-card self-assess">
+                    <h3>Self-reflection</h3>
+                    <p>Rate yourself on the seven qualities LVVTA lists for certifiers. These ratings are for your own reflection and are not scored.</p>
+                    <button class="btn btn-secondary" id="self-assess-btn">Rate Myself</button>
+                    <div id="self-ratings" class="rc-hint"></div>
                 </div>
             </div>
 

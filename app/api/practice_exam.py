@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import math
 import random
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from app.core.database import get_db
 from app.models.enhanced import PracticeExam, ExamStatus
@@ -52,33 +53,52 @@ class SubmitExamRequest(BaseModel):
 
 def _generate_formal_questions(db: Session, total: int) -> List[dict]:
     """`total` MCQs spread across standards that have indexed content, so the mock
-    covers the whole syllabus the way the real test samples it."""
+    covers the whole syllabus the way the real test samples it. LLM calls for a batch
+    of standards run in parallel (sequentially this took minutes)."""
     collection = get_or_create_collection(get_chroma_client())
     standards = db.query(Standard).all()
     random.shuffle(standards)
 
-    questions: List[dict] = []
-    seen = set()
-    # Round 1 samples ~5 standards; later rounds top up (across the same standards)
-    # when a corpus is small or the AI returned fewer usable questions than asked.
-    for round_no in range(3):
-        for std in standards:
-            need = total - len(questions)
-            if need <= 0:
-                break
-            per_standard = max(3, math.ceil(total / 5)) if round_no == 0 else max(2, need)
+    def contexts(batch):
+        out = []
+        for std in batch:
             try:
-                results = query_documents(
+                res = query_documents(
                     collection, f"LVV Standard {std.standard_number} requirements specifications",
                     n_results=8, where={"standard_number": std.standard_number},
                 )
-                docs = (results.get("documents") or [[]])[0]
-                if not docs:
-                    continue
-                generated = generate_quiz_questions("\n\n".join(docs), std.standard_number, per_standard, exam_style=True)
+                docs = (res.get("documents") or [[]])[0]
+                if docs:
+                    out.append((std, "\n\n".join(docs)))
             except Exception as e:
                 print(f"Formal mock: skipping {std.standard_number}: {e}")
-                continue
+        return out
+
+    def generate(item, per_standard):
+        std, context = item
+        try:
+            return std, generate_quiz_questions(context, std.standard_number, per_standard,
+                                                exam_style=True, standard_title=std.title)
+        except Exception as e:
+            print(f"Formal mock: generation failed for {std.standard_number}: {e}")
+            return std, []
+
+    questions: List[dict] = []
+    seen = set()
+    cursor = 0
+    # Round 1 samples ~5 standards (plus a spare); later rounds top up when the corpus
+    # is small or the AI returned fewer usable questions than asked.
+    for round_no in range(3):
+        need = total - len(questions)
+        if need <= 0 or not standards:
+            break
+        per_standard = max(3, math.ceil(total / 5)) if round_no == 0 else max(2, need)
+        count = min(len(standards), math.ceil(need / per_standard) + 1)
+        batch = [standards[(cursor + i) % len(standards)] for i in range(count)]
+        cursor += count
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(lambda item: generate(item, per_standard), contexts(batch)))
+        for std, generated in results:
             for q in generated or []:
                 text = (q.get("question") or "").strip()
                 if len(q.get("options") or []) < 2 or correct_index(q) < 0 or text.lower() in seen:
@@ -87,8 +107,6 @@ def _generate_formal_questions(db: Session, total: int) -> List[dict]:
                 q["standard_number"] = std.standard_number
                 q["standard_title"] = std.title
                 questions.append(q)
-        if len(questions) >= total:
-            break
 
     random.shuffle(questions)
     questions = questions[:total]

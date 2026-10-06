@@ -1,7 +1,7 @@
 import os
 import json
 import re
-from typing import List, Dict, Any
+from typing import Optional, List, Dict, Any
 
 import anthropic
 from openai import OpenAI
@@ -125,7 +125,7 @@ Provide a clear, professional answer with specific Standard citations:"""
 
 
 def generate_quiz_questions(context: str, standard_number: str, num_questions: int = 5,
-                            exam_style: bool = False) -> List[Dict]:
+                            exam_style: bool = False, standard_title: Optional[str] = None) -> List[Dict]:
     system_prompt = """You are an expert quiz creator for LVV (Low Volume Vehicle) certifier training in New Zealand.
 The real LVV Certifier assessment tests whether a person can apply the LVV standards to real vehicles with a safety-first
 mindset and follow correct certification procedure. It does not reward memorising trivia.
@@ -140,7 +140,8 @@ knowledge, modification and construction knowledge, or understanding and applica
 requirements. Avoid questions that depend on remembering an obscure figure or table row.
 """
 
-    user_prompt = f"""Based on this content from LVV Standard {standard_number}, create {num_questions} multiple choice questions.
+    label = standard_title or standard_number
+    user_prompt = f"""Based on this content from the LVV document "{label}", create {num_questions + 2} multiple choice questions.
 {exam_note}
 CONTENT:
 {context}
@@ -148,10 +149,10 @@ CONTENT:
 Format your response as a JSON array with this structure:
 [
   {{
-    "question": "The question text (reference the Standard Number)",
+    "question": "The question text",
     "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
     "correct_answer": "A",
-    "explanation": "Brief explanation citing the specific section of {standard_number}",
+    "explanation": "Brief explanation citing the specific section of {label}",
     "type": "MCQ"
   }}
 ]
@@ -164,9 +165,14 @@ Question mix:
 - Safety-first judgement: when a requirement is not met, or safety is in doubt, what the certifier must do.
 
 Rules:
+- Refer to the document by its plain name ("{label}"). Never use file-style identifiers such as LVVTA_STD_... or
+  LVVTA_LVV_Cert_Threshold in a question or explanation.
+- Do NOT ask which document, chapter, section, annex, form, rule number or manual contains something, or what a
+  form is called. Test whether the person can APPLY the standard, not where it is filed.
 - Use ONLY facts stated in the CONTENT. Never invent figures, section numbers or requirements.
 - Exactly one option is clearly correct; the others are plausible mistakes a real applicant might make.
-- No "all of the above" / "none of the above". Keep options similar in length.
+- No "all of the above" / "none of the above". All four options must be similar in length and detail — the correct
+  option must NOT be the longest or most detailed. Do not always make A correct.
 - "correct_answer" is the option letter only.
 - The explanation must say why the right answer is right and cite the section."""
 
@@ -175,7 +181,8 @@ Rules:
         start = content.find('[')
         end = content.rfind(']') + 1
         if start != -1 and end > start:
-            return json.loads(content[start:end])
+            from app.services.quiz.grading import prepare_questions
+            return prepare_questions(json.loads(content[start:end]), num_questions)
     except Exception:
         pass
     

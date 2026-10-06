@@ -9,7 +9,7 @@ let currentStandard = null;
 let currentView = 'dashboard';
 let currentTeachStandard = null;
 let currentTeachTree = null;
-let userStats = { quizzes: 0, score: 0, mastered: 0 };
+let userStats = { quizzes: 0, score: 0, mastered: 0, atPass: 0 };
 let savedState = null;
 let isGuest = false;
 let mockExam = null;      // active exam: {id, questions, ...}
@@ -224,7 +224,7 @@ function handleLogout() {
     authToken = null;
     currentUser = null;
     savedState = null;
-    userStats = { quizzes: 0, score: 0, mastered: 0 };
+    userStats = { quizzes: 0, score: 0, mastered: 0, atPass: 0 };
     showAuthSection();
 }
 
@@ -507,7 +507,9 @@ async function loadProgress() {
             const quizzes = history.length;
             const avg = quizzes ? history.reduce((s, r) => s + (r.score || 0), 0) / quizzes : 0;
             const mastered = history.filter(r => (r.score || 0) >= 80).length;
-            userStats = { quizzes, score: avg, mastered };
+            // 75% = the real written test's pass mark (15 of 20)
+            const atPass = history.filter(r => (r.score || 0) >= 75).length;
+            userStats = { quizzes, score: avg, mastered, atPass };
         }
     } catch (e) {
         if (!isGuest) console.error('loadProgress error:', e);
@@ -517,24 +519,7 @@ async function loadProgress() {
     document.getElementById('avg-score').textContent = `${Math.round(userStats.score)}%`;
     document.getElementById('sections-mastered').textContent = userStats.mastered;
 
-    const readiness = calculateReadiness();
-    document.getElementById('readiness-score').textContent = `${readiness}%`;
-}
-
-function calculateReadiness() {
-    const progress = userStats;
-    const assessment = JSON.parse(localStorage.getItem('lvv_self_assessment') || '{}');
-
-    let score = 0;
-    if (progress.quizzes > 0) score += Math.min(20, progress.quizzes * 2);
-    if (progress.score > 0) score += (progress.score / 100) * 30;
-    if (progress.mastered > 0) score += Math.min(20, progress.mastered * 4);
-    if (Object.keys(assessment).length > 0) {
-        const avgSelfScore = Object.values(assessment).reduce((a, b) => a + b, 0) / 7;
-        score += (avgSelfScore / 5) * 30;
-    }
-    
-    return Math.min(100, Math.round(score));
+    document.getElementById('readiness-score').textContent = userStats.atPass;
 }
 
 async function loadCategories() {
@@ -1291,36 +1276,78 @@ function saveSelfAssessment() {
     updateReadinessScores();
 }
 
-function updateReadinessScores() {
-    const progress = userStats;
+// Published criteria, each with its source. Ticks are self-reported and kept in this browser only.
+const CRITERIA = [
+    { id: 'exp-industry', text: 'Recent and continuous motor industry experience of more than ten years', src: 'LVVTA "Become a certifier" page. (ORS Ch.4 1.5 Note 1 adds that you need not be working in the industry when you apply.)' },
+    { id: 'exp-mod', text: 'Practical vehicle modification or construction experience at industry-expert level — for categories LV1A–LV1D: two years’ full-time modification work, or a variety of complex and diverse modifications, or equivalent experience', src: 'ORS Ch.4 sections 2.2–2.5' },
+    { id: 'exp-built', text: 'You have built or modified vehicles yourself', src: 'LVVTA "Become a certifier" page; ORS Ch.4 1.2' },
+    { id: 'safety', text: 'Committed to road safety and safety-focused in every decision', src: 'ORS Ch.5 3.3(1)(a)' },
+    { id: 'ethics', text: 'Always honest and ethical', src: 'ORS Ch.5 3.3(1)(b); Ch.7 1.2(1)(a)' },
+    { id: 'independence', text: 'Able to stay independent: never certifying a vehicle that you, your staff or your business modified, or that you or your family own', src: 'ORS Ch.7 sections 2.2–2.3' },
+    { id: 'service', text: 'Professional, efficient and courteous service to customers', src: 'ORS Ch.5 3.3(1)(c)' },
+    { id: 'comms', text: 'Fluent English with good written and spoken communication', src: 'ORS Ch.5 3.3(1)(d)–(e)' },
+    { id: 'organised', text: 'Methodical and well organised', src: 'ORS Ch.5 3.3(1)(f)' },
+    { id: 'licence', text: 'A current NZ driver licence for the vehicle classes you would drive during inspections', src: 'ORS Ch.5 3.3(1)(g)' },
+    { id: 'fitproper', text: 'Able to pass a "fit and proper person" test (criminal record and driving history)', src: 'LVVTA "Become a certifier" page' },
+    { id: 'qms', text: 'Willing to establish a quality management system (this may be the NZTA Performance Review System)', src: 'ORS Ch.5 3.4(1)(a)' },
+    { id: 'insurance', text: 'Willing to hold public liability and professional indemnity insurance for LVV certification', src: 'ORS Ch.5 3.4(1)(b)' },
+    { id: 'geography', text: 'Aware that geographical coverage is considered — areas already well served may not take new certifiers', src: 'LVVTA "Become a certifier" page' },
+];
+
+function loadCriteriaTicks() {
+    try { return JSON.parse(localStorage.getItem('lvv_criteria') || '{}'); } catch (e) { return {}; }
+}
+
+function renderCriteria() {
+    const ticks = loadCriteriaTicks();
+    const list = document.getElementById('criteria-list');
+    list.innerHTML = CRITERIA.map(c => `
+        <li><label><input type="checkbox" data-id="${c.id}" ${ticks[c.id] ? 'checked' : ''}> ${escapeHtml(c.text)}</label>
+        <div class="rc-hint">${escapeHtml(c.src)}</div></li>`).join('');
+    list.querySelectorAll('input[type=checkbox]').forEach(box => box.addEventListener('change', () => {
+        const t = loadCriteriaTicks();
+        t[box.dataset.id] = box.checked;
+        try { localStorage.setItem('lvv_criteria', JSON.stringify(t)); } catch (e) { /* storage unavailable */ }
+        document.getElementById('criteria-count').textContent = criteriaCountText();
+    }));
+    document.getElementById('criteria-count').textContent = criteriaCountText();
+}
+
+function criteriaCountText() {
+    const t = loadCriteriaTicks();
+    return `${CRITERIA.filter(c => t[c.id]).length} of ${CRITERIA.length} ticked`;
+}
+
+async function updateReadinessScores() {
+    renderCriteria();
+    const el = document.getElementById('readiness-practice');
     const assessment = JSON.parse(localStorage.getItem('lvv_self_assessment') || '{}');
-    
-    const techScore = Math.min(100, (progress.quizzes || 0) * 10);
-    document.getElementById('tech-skills-meter').style.width = `${techScore}%`;
-    document.getElementById('tech-skills-meter').parentElement.nextElementSibling.textContent = `${techScore}%`;
-    
-    const standardsScore = Math.min(100, (progress.mastered || 0) * 20);
-    document.getElementById('standards-meter').style.width = `${standardsScore}%`;
-    document.getElementById('standards-meter').parentElement.nextElementSibling.textContent = `${standardsScore}%`;
-    
-    const orsScore = Math.min(100, (progress.score || 0));
-    document.getElementById('ors-meter').style.width = `${orsScore}%`;
-    document.getElementById('ors-meter').parentElement.nextElementSibling.textContent = `${Math.round(orsScore)}%`;
-    
-    document.getElementById('threshold-meter').style.width = `${techScore}%`;
-    document.getElementById('threshold-meter').parentElement.nextElementSibling.textContent = `${techScore}%`;
-    
-    document.getElementById('scenario-meter').style.width = `${standardsScore}%`;
-    document.getElementById('scenario-meter').parentElement.nextElementSibling.textContent = `${standardsScore}%`;
-    
-    const overall = calculateReadiness();
-    document.getElementById('overall-readiness-score').textContent = `${overall}%`;
-    
-    let message = 'Complete more training to build your certification readiness';
-    if (overall >= 80) message = 'You are well prepared! Consider applying to become an LVV Certifier.';
-    else if (overall >= 60) message = 'Good progress! Continue studying to reach certification readiness.';
-    else if (overall >= 40) message = 'You are making progress. Focus on areas that need improvement.';
-    document.getElementById('readiness-message').textContent = message;
+    const names = { integrity: 'Integrity', technical: 'Technically skilled', experience: 'Vastly experienced',
+                    conscientious: 'Conscientious', independent: 'Independent', reliable: 'Reliable', people: 'People skills' };
+    document.getElementById('self-ratings').textContent = Object.keys(assessment).length
+        ? 'Your ratings: ' + Object.entries(assessment).map(([k, v]) => `${names[k] || k} ${v}/5`).join(' · ')
+        : '';
+
+    if (isGuest || !authToken) {
+        el.innerHTML = '<h4>Your practice so far</h4><p class="rc-hint">Create an account to see your quiz and mock exam results here.</p>';
+        return;
+    }
+    let mockLine = 'No mock exams sat yet.';
+    try {
+        const r = await fetch(`${API_BASE}/api/practice-exam/history/all`, { headers: authHeaders() });
+        if (r.ok) {
+            const done = (await r.json()).filter(e => e.status === 'completed' && e.score !== null);
+            if (done.length) {
+                const best = Math.max(...done.map(e => e.score));
+                mockLine = `${done.length} mock exam${done.length === 1 ? '' : 's'} sat · best ${Math.round(best)}% (pass mark 75%).`;
+            }
+        }
+    } catch (e) { /* leave default */ }
+    const q = userStats;
+    el.innerHTML = `<h4>Your practice so far</h4>
+        <p>${q.quizzes} quiz${q.quizzes === 1 ? '' : 'zes'} taken · average ${Math.round(q.score)}% · ${q.atPass} at or above the 75% written-test pass mark.</p>
+        <p>${escapeHtml(mockLine)}</p>
+        <p class="rc-hint">These are practice results on generated questions. They show where you stand against the published syllabus — they don't predict the outcome of a real assessment.</p>`;
 }
 
 function showLoading(message = 'Loading...') {
