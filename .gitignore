@@ -60,3 +60,6 @@ local_dev.db
 # Platform/agent state (unused)
 .config/
 .local/
+
+# graphify knowledge-graph output (regenerate with /graphify)
+graphify-out/
