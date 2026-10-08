@@ -8,7 +8,9 @@ from app.services.rag.vector_store import get_chroma_client, get_or_create_colle
 from app.core.database import SessionLocal
 from app.models.quiz import Standard, StandardSection
 
-PDF_CACHE_DIR = "./pdf_cache"
+from app.core.config import settings
+
+PDF_CACHE_DIR = settings.PDF_CACHE_DIR
 
 def ensure_cache_dir():
     os.makedirs(PDF_CACHE_DIR, exist_ok=True)

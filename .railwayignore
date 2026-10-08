@@ -1,0 +1,12 @@
+# Not part of the app — keep uploads small
+LVVT-Tutor/
+graphify-out/
+attached_assets/
+tests/
+.venv/
+.claude/
+local_dev.db
+chroma_db/
+screenshots/
+__pycache__/
+*.pyc

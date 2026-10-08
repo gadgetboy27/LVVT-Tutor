@@ -88,6 +88,23 @@ async def _pdf_refresh_loop():
         await asyncio.sleep(settings.PDF_REFRESH_INTERVAL_HOURS * 3600)
 
 
+async def _bootstrap_corpus():
+    """On a fresh deployment, load the exported vector-store chunks and bundled PDFs,
+    then seed the standards table from them. Runs in the background so the server
+    answers health checks immediately."""
+    from app.services.rag.bootstrap import ensure_corpus, seed_pdf_cache
+    from app.services.rag.pdf_indexer import seed_standards_from_chroma, backfill_pdf_urls
+    try:
+        print(f"PDF cache: {await asyncio.to_thread(seed_pdf_cache)}")
+        loaded = await asyncio.to_thread(ensure_corpus)
+        print(f"Corpus bootstrap: {loaded}")
+        if loaded.get("loaded"):
+            print(f"Seeded standards: {await asyncio.to_thread(seed_standards_from_chroma)}")
+            print(f"Backfilled pdf urls: {await asyncio.to_thread(backfill_pdf_urls)}")
+    except Exception as e:
+        print(f"Corpus bootstrap failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_initial_standards()
@@ -104,10 +121,14 @@ async def lifespan(app: FastAPI):
             print(f"Backfilled pdf_url for {result['updated']} standards from ChromaDB")
     except Exception as e:
         print(f"Standard seeding from ChromaDB skipped: {e}")
+    from app.services.rag.bootstrap import link_model_cache
+    print(f"Model cache: {link_model_cache()}")
+    bootstrap_task = asyncio.create_task(_bootstrap_corpus())
     refresh_task = asyncio.create_task(_pdf_refresh_loop()) if settings.PDF_REFRESH_ENABLED else None
     yield
-    if refresh_task:
-        refresh_task.cancel()
+    for task in (bootstrap_task, refresh_task):
+        if task:
+            task.cancel()
 
 app = FastAPI(
     title="LVV-Learn: LVV Certifier Training API",

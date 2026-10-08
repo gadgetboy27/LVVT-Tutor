@@ -3,13 +3,14 @@ import hashlib
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.quiz import Standard
 from app.services.rag.pdf_indexer import download_pdf, ensure_cache_dir
 
 router = APIRouter(prefix="/api/pdf", tags=["PDF Viewer"])
 
-PDF_CACHE_DIR = "pdf_cache"
+PDF_CACHE_DIR = settings.PDF_CACHE_DIR
 
 # PDFs are content-addressed by a hash of their source URL, so a cached file
 # never changes underneath a given standard. That makes them safe to cache hard

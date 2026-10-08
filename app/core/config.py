@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     LVVTA_BASE_URL: str = "https://www.lvvta.org.nz"
     CHROMA_PERSIST_DIR: str = "./chroma_db"
+    # Where downloaded source PDFs are cached. On a host with a persistent volume, point
+    # this (and CHROMA_PERSIST_DIR) at it so redeploys keep them.
+    # Chroma downloads an ~80 MB embedding model to ~/.cache/chroma on first use. Set this to
+    # a persistent path (e.g. a volume) to symlink that cache there so redeploys skip the download.
+    MODEL_CACHE_DIR: str = os.environ.get("MODEL_CACHE_DIR", "")
+    PDF_CACHE_DIR: str = os.environ.get("PDF_CACHE_DIR", "pdf_cache")
     
     model_config = SettingsConfigDict(env_file=".env")
 
