@@ -291,6 +291,48 @@ ORS_CHAPTERS = [
         "category": "Certification Process"
     },
     {
+        "number": "ORS_Chapter_1",
+        "title": "Background to the LVV Certification System",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_1_Background_to_LVV_Certification_System.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_6",
+        "title": "LVV Documents, Equipment & Premises",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_6_LVV_Documents_Equipment_Premises.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_12",
+        "title": "LVV Certification Plates & Labels",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_12_LVV_Certification_Plates_Labels.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_13",
+        "title": "LVV Complaint & Performance Management",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_13_Complaints_and_Performance_Management.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_14",
+        "title": "LVVTA Services & Support",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_14_LVVTA_Services_Support.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_15",
+        "title": "LVVTA Committees & Working Groups",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_15_LVVTA_Committees_and_Working_Groups.pdf",
+        "category": "Certification Process"
+    },
+    {
+        "number": "ORS_Chapter_16",
+        "title": "LVVTA-NZTA Co-regulatory Relationship",
+        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_16_LVVTA-NZTA_Co-regulatory_Relationship.pdf",
+        "category": "Certification Process"
+    },
+    {
         "number": "ORS_Chapter_7",
         "title": "LVV Certifier Conduct and Service",
         "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_7_LVV_Certifier_Conduct_and_Service.pdf",
@@ -320,17 +362,52 @@ ORS_CHAPTERS = [
         "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule_Chapter_11_LVV_Certifier_Error_Recording_Reporting.pdf",
         "category": "Certification Process"
     },
-    {
-        "number": "ORS_Full",
-        "title": "Complete Operating Requirements Schedule",
-        "url": "https://www.lvvta.org.nz/documents/operating_requirements_schedule/LVVTA_Operating_Requirements_Schedule.pdf",
-        "category": "Certification Process"
-    }
 ]
+
+# Standards LVVTA no longer publishes. The complete-ORS PDF was withdrawn when the ORS moved
+# to chapter-by-chapter amendment (V12, Nov 2025); its text is superseded, so it must not
+# keep feeding quizzes and answers.
+RETIRED_STANDARDS = ["ORS_Full"]
+
+
+def retire_standards(numbers=None) -> Dict:
+    """Remove withdrawn standards: drop their vector-store chunks, and delete the row unless
+    users have history against it (then just stop refreshing it)."""
+    from app.models.quiz import QuizResult, SectionMastery, UserProgress
+    numbers = RETIRED_STANDARDS if numbers is None else numbers
+    out = {"deleted": [], "kept_for_history": []}
+    db = SessionLocal()
+    try:
+        for number in numbers:
+            std = db.query(Standard).filter(Standard.standard_number == number).first()
+            try:
+                get_or_create_collection(get_chroma_client()).delete(where={"standard_number": number})
+            except Exception as e:
+                out.setdefault("errors", []).append(f"{number}: {e}")
+            if not std:
+                continue
+            used = any(db.query(m).filter(m.standard_id == std.id).count()
+                       for m in (QuizResult, SectionMastery, UserProgress))
+            if used:
+                std.pdf_url = None
+                std.is_processed = False
+                out["kept_for_history"].append(number)
+            else:
+                db.delete(std)
+                out["deleted"].append(number)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        out["error"] = str(e)
+    finally:
+        db.close()
+    return out
+
 
 def index_ors_chapters() -> Dict:
     """Index any ORS chapter not yet processed. Already-indexed chapters are skipped
     (pdf_refresh keeps those current), so this is cheap to call at every startup."""
+    retire_standards()
     db = SessionLocal()
     results = {"indexed": 0, "failed": 0, "details": []}
     
