@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7)))
     
     # LLM provider: "auto" tries Anthropic (Claude Fable 5) first, then OpenAI.
+    # Optional cheaper/faster Anthropic model just for building study guides (selection + short
+    # restatement; every quote is machine-verified). Empty = use ANTHROPIC_MODEL.
+    STUDY_GUIDE_MODEL: str = os.environ.get("STUDY_GUIDE_MODEL", "")
     LLM_PROVIDER: str = os.environ.get("LLM_PROVIDER", "auto")
 
     # Anthropic (Claude Fable 5) — primary text AI

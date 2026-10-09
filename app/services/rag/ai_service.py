@@ -42,11 +42,11 @@ def _get_openai() -> OpenAI:
     return _openai_client
 
 
-def _anthropic_chat(system: str, user: str, max_tokens: int) -> str:
+def _anthropic_chat(system: str, user: str, max_tokens: int, model: Optional[str] = None) -> str:
     # Fable 5: adaptive thinking only and no sampling params; omit both. The
     # system prompt is a top-level field, not a message.
     resp = _get_anthropic().messages.create(
-        model=settings.ANTHROPIC_MODEL,
+        model=model or settings.ANTHROPIC_MODEL,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
@@ -75,7 +75,7 @@ def _provider_order() -> List[str]:
     return ["anthropic", "openai"]  # auto: Fable first, OpenAI as fallback
 
 
-def _llm_chat(system: str, user: str, max_tokens: int = 1024) -> str:
+def _llm_chat(system: str, user: str, max_tokens: int = 1024, model: Optional[str] = None) -> str:
     """One chat completion with provider fallback (Anthropic -> OpenAI).
 
     Raises RuntimeError if no provider is configured or all fail. Callers that
@@ -85,7 +85,7 @@ def _llm_chat(system: str, user: str, max_tokens: int = 1024) -> str:
     for provider in _provider_order():
         try:
             if provider == "anthropic" and _anthropic_ready():
-                return _anthropic_chat(system, user, max_tokens)
+                return _anthropic_chat(system, user, max_tokens, model)
             if provider == "openai" and _openai_ready():
                 return _openai_chat(system, user, max_tokens)
         except Exception as e:  # noqa: BLE001 — try the next provider

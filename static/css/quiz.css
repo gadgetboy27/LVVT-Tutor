@@ -1290,3 +1290,18 @@ body {
 .criteria-list label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .criteria-list input[type=checkbox] { margin-top: 4px; }
 .criteria-list.coverage li { line-height: 1.5; }
+
+/* Key points study guide */
+.study-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+.study-controls .sep { margin-left: 12px; }
+.chip { border: 1px solid var(--gray-light); background: white; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 0.9rem; }
+.chip.active { background: var(--primary); color: white; border-color: var(--primary); }
+.study-point { background: white; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; border-left: 5px solid var(--gray-light); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05); }
+.study-point.imp-1 { border-left-color: var(--danger); }
+.study-point.imp-2 { border-left-color: var(--warning); }
+.study-point.imp-3 { border-left-color: var(--secondary); }
+.study-chips { display: flex; gap: 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--gray); }
+.study-text { font-weight: 600; margin: 6px 0; }
+.study-point blockquote { margin: 8px 0; padding: 8px 12px; background: #f6f8fa; border-radius: 6px; color: #444; font-size: 0.9rem; }
+.study-meta { font-size: 0.85rem; color: var(--gray); }
+.study-meta a { color: var(--primary); }

@@ -22,9 +22,10 @@ from app.api.pdf_viewer import router as pdf_viewer_router
 from app.api.analytics import router as analytics_router
 from app.api.teach import router as teach_router
 from app.api.report import router as report_router
+from app.api.study import router as study_router
 from app.models.quiz import Standard
 
-from app.models import enhanced, analytics
+from app.models import enhanced, analytics, study
 
 Base.metadata.create_all(bind=engine)
 
@@ -81,11 +82,22 @@ async def _pdf_refresh_loop():
     while True:
         try:
             await asyncio.to_thread(index_ors_chapters)   # picks up any newly added ORS chapter
+            await asyncio.to_thread(_load_study_guides)
             result = await asyncio.to_thread(refresh_stale_pdfs)
             print(f"PDF refresh: {result}")
         except Exception as e:
             print(f"PDF refresh failed: {e}")
         await asyncio.sleep(settings.PDF_REFRESH_INTERVAL_HOURS * 3600)
+
+
+def _load_study_guides():
+    """Insert shipped study points for any standard that doesn't have them yet."""
+    from app.services.rag import study_guide
+    db = SessionLocal()
+    try:
+        return study_guide.load_points(db, "data/study_guides.json.gz")
+    finally:
+        db.close()
 
 
 async def _bootstrap_corpus():
@@ -96,6 +108,7 @@ async def _bootstrap_corpus():
     from app.services.rag.pdf_indexer import seed_standards_from_chroma, backfill_pdf_urls
     try:
         print(f"PDF cache: {await asyncio.to_thread(seed_pdf_cache)}")
+        print(f"Study guides: {await asyncio.to_thread(_load_study_guides)}")
         loaded = await asyncio.to_thread(ensure_corpus)
         print(f"Corpus bootstrap: {loaded}")
         if loaded.get("loaded"):
@@ -162,6 +175,7 @@ app.include_router(pdf_viewer_router)
 app.include_router(analytics_router)
 app.include_router(teach_router)
 app.include_router(report_router)
+app.include_router(study_router)
 
 
 @app.middleware("http")

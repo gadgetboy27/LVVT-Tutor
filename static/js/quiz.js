@@ -88,6 +88,10 @@ function setupEventListeners() {
     document.getElementById('start-quiz-from-doc').addEventListener('click', startQuizFromDoc);
 
     document.getElementById('back-from-teach').addEventListener('click', closeTeachInterface);
+    document.getElementById('back-from-study').addEventListener('click', closeStudyGuide);
+    document.getElementById('study-quiz-btn').addEventListener('click', () => {
+        if (currentStudy) startQuiz(currentStudy.number, currentStudy.title);
+    });
     document.getElementById('teach-quiz-btn').addEventListener('click', () => {
         if (currentTeachStandard) startQuiz(currentTeachStandard.number, currentTeachStandard.title);
     });
@@ -248,6 +252,7 @@ async function showMainContent() {
     document.getElementById('quiz-container').classList.add('hidden');
     document.getElementById('document-viewer').classList.add('hidden');
     document.getElementById('teach-interface').classList.add('hidden');
+    document.getElementById('study-guide').classList.add('hidden');
     switchView('dashboard');
 
     await Promise.all([
@@ -272,6 +277,7 @@ function switchView(view) {
     document.getElementById('quiz-container').classList.add('hidden');
     document.getElementById('document-viewer').classList.add('hidden');
     document.getElementById('teach-interface').classList.add('hidden');
+    document.getElementById('study-guide').classList.add('hidden');
 
     if (view === 'readiness') {
         updateReadinessScores();
@@ -614,6 +620,7 @@ async function selectCategory(category) {
                 <p class="standard-summary">${std.summary || 'LVVTA standard document'}</p>
                 <div class="standard-actions">
                     <button class="btn btn-read" onclick="viewDocument('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Read Document</button>
+                    <button class="btn btn-secondary" onclick="openStudyGuide('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Key Points</button>
                     <button class="btn btn-secondary" onclick="startTeachBack('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Teach It</button>
                     <button class="btn btn-primary" onclick="startQuiz('${std.standard_number}', '${std.title.replace(/'/g, "\\'")}')">Take Quiz</button>
                 </div>
@@ -804,8 +811,133 @@ function renderTeachEvaluation(el, r) {
     `;
 }
 
+// ---- Key Points: AI-selected, machine-verified passages from the official PDF ----
+let currentStudy = null;     // {number, title, data}
+let studyFilter = 1;         // 1 = must know, 2 = + should know, 3 = everything
+let studyGroup = 'page';     // 'page' | 'type'
+let studyPoll = null;
+
+const IMPORTANCE_LABEL = { 1: 'Must know', 2: 'Should know', 3: 'Useful' };
+
+async function openStudyGuide(standardNumber, title) {
+    currentStudy = { number: standardNumber, title, data: null };
+    studyFilter = 1;
+    clearInterval(studyPoll);
+    document.getElementById('study-title').textContent = `Key Points: ${title}`;
+    document.getElementById('study-body').innerHTML = '<div class="loading">Loading key points...</div>';
+    document.querySelectorAll('.view-section').forEach(s => s.classList.add('hidden'));
+    document.getElementById('study-guide').classList.remove('hidden');
+    await loadStudyGuide();
+}
+
+async function loadStudyGuide() {
+    try {
+        const r = await fetch(`${API_BASE}/api/study/${encodeURIComponent(currentStudy.number)}`);
+        if (!r.ok) throw new Error('Could not load key points');
+        currentStudy.data = await r.json();
+        document.getElementById('study-note').textContent = currentStudy.data.note || '';
+        renderStudyGuide();
+    } catch (e) {
+        document.getElementById('study-body').innerHTML = `<p class="error-message">${escapeHtml(e.message)}</p>`;
+    }
+}
+
+function renderStudyGuide() {
+    const d = currentStudy.data;
+    const body = document.getElementById('study-body');
+    if (d.status === 'generating') {
+        body.innerHTML = '<div class="rc-focus"><h4>Building key points…</h4><p class="rc-hint">The AI is reading the document and every quote is being checked against the PDF. This usually takes 20–60 seconds.</p></div>';
+        clearInterval(studyPoll);
+        let tries = 0;
+        studyPoll = setInterval(async () => {
+            if (++tries > 60) { clearInterval(studyPoll); return; }
+            await loadStudyGuide();
+            if (currentStudy.data.status !== 'generating') clearInterval(studyPoll);
+        }, 4000);
+        return;
+    }
+    if (d.status !== 'ready' && d.status !== 'outdated') {
+        const why = d.status === 'failed' ? `<p class="error-message">${escapeHtml(d.error || 'The last attempt failed.')}</p>` : '';
+        body.innerHTML = `<div class="rc-focus"><h4>No key points built for this document yet</h4>
+            <p class="rc-hint">The AI picks the passages most likely to matter for the test, and each one is shown with an exact quote and page number from the official PDF.</p>${why}
+            ${isGuest || !authToken ? '<p class="rc-hint">Create an account to build key points.</p>'
+                : '<button class="btn btn-primary" id="study-build-btn">Build key points</button>'}</div>`;
+        const b = document.getElementById('study-build-btn');
+        if (b) b.addEventListener('click', buildStudyGuide);
+        return;
+    }
+
+    const shown = d.points.filter(p => p.importance <= studyFilter);
+    const c = d.counts || {};
+    const chips = [[1, `Must know (${c[1] || 0})`], [2, `+ Should know (${(c[1] || 0) + (c[2] || 0)})`], [3, `Everything (${d.points.length})`]]
+        .map(([v, label]) => `<button class="chip ${studyFilter === v ? 'active' : ''}" data-filter="${v}">${label}</button>`).join('');
+    const groups = [['page', 'By page'], ['type', 'By type']]
+        .map(([v, label]) => `<button class="chip ${studyGroup === v ? 'active' : ''}" data-group="${v}">${label}</button>`).join('');
+
+    const card = p => `<div class="study-point imp-${p.importance}">
+        <div class="study-chips"><span class="study-cat">${escapeHtml(p.category)}</span><span class="study-imp">${IMPORTANCE_LABEL[p.importance]}</span></div>
+        <p class="study-text">${escapeHtml(p.point)}</p>
+        <blockquote>${escapeHtml(p.quote)}</blockquote>
+        <div class="study-meta">${p.section ? `Clause ${escapeHtml(p.section)} · ` : ''}
+            <a href="${API_BASE}${d.original_pdf}#page=${p.page}" target="_blank" rel="noopener">Open the original, page ${p.page} ↗</a></div></div>`;
+
+    let list;
+    if (studyGroup === 'type') {
+        const byType = {};
+        shown.forEach(p => (byType[p.category] = byType[p.category] || []).push(p));
+        list = Object.entries(byType).map(([cat, ps]) => `<h3>${escapeHtml(cat)} <span class="rc-score">${ps.length}</span></h3>${ps.map(card).join('')}`).join('');
+    } else {
+        const byPage = {};
+        shown.forEach(p => (byPage[p.page] = byPage[p.page] || []).push(p));
+        list = Object.entries(byPage).sort((a, b) => a[0] - b[0]).map(([pg, ps]) => `<h3>Page ${pg}</h3>${ps.map(card).join('')}`).join('');
+    }
+
+    body.innerHTML = `
+        ${d.status === 'outdated' ? '<div class="rc-focus"><p>The official document has changed since these notes were built. <button class="btn btn-secondary" id="study-build-btn">Rebuild</button></p></div>' : ''}
+        <div class="rc-summary"><div class="rc-grade">${d.points.length}</div><div>
+            <h3>key points on ${d.pages_with_points.length} page${d.pages_with_points.length === 1 ? '' : 's'}</h3>
+            <p>Pages with no key points (up to page ${Math.max(...d.pages_with_points)}): <strong>${escapeHtml(skimPages(d))}</strong>. Those are mostly cover, contents, background and admin — but always check the original for anything you're unsure of.</p></div></div>
+        <div class="study-controls"><span>Show:</span>${chips}<span class="sep">Group:</span>${groups}</div>
+        ${list || '<p class="rc-hint">Nothing at this level.</p>'}`;
+    body.querySelectorAll('[data-filter]').forEach(b => b.addEventListener('click', () => { studyFilter = parseInt(b.dataset.filter, 10); renderStudyGuide(); }));
+    body.querySelectorAll('[data-group]').forEach(b => b.addEventListener('click', () => { studyGroup = b.dataset.group; renderStudyGuide(); }));
+    const rb = document.getElementById('study-build-btn');
+    if (rb) rb.addEventListener('click', buildStudyGuide);
+}
+
+function skimPages(d) {
+    const last = Math.max(...d.pages_with_points);
+    const without = [];
+    for (let i = 1; i <= last; i++) if (!d.pages_with_points.includes(i)) without.push(i);
+    return without.length ? without.join(', ') : `none up to page ${last}`;
+}
+
+async function buildStudyGuide() {
+    try {
+        const r = await fetch(`${API_BASE}/api/study/${encodeURIComponent(currentStudy.number)}/generate`, {
+            method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }) });
+        if (r.status === 401) throw new Error('Please log in to build key points.');
+        if (!r.ok) throw new Error('Could not start building key points');
+        currentStudy.data.status = 'generating';
+        renderStudyGuide();
+    } catch (e) {
+        document.getElementById('study-body').insertAdjacentHTML('afterbegin', `<p class="error-message">${escapeHtml(e.message)}</p>`);
+    }
+}
+
+function closeStudyGuide() {
+    clearInterval(studyPoll);
+    document.getElementById('study-guide').classList.add('hidden');
+    switchView('dashboard');
+    if (document.getElementById('standards-section').innerHTML.trim()) {
+        document.querySelector('.category-section').classList.add('hidden');
+        document.getElementById('standards-section').classList.remove('hidden');
+    }
+}
+
 function closeTeachInterface() {
     document.getElementById('teach-interface').classList.add('hidden');
+    document.getElementById('study-guide').classList.add('hidden');
     switchView('dashboard');
 
     if (document.getElementById('standards-section').innerHTML.trim()) {
