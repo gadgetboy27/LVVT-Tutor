@@ -5,6 +5,7 @@ import os
 # monkeypatch runs, and the PDF refresh loop would otherwise hit the real network
 # and rewrite pdf_cache/ and the vector store.
 os.environ["PDF_REFRESH_ENABLED"] = "false"
+os.environ["BOOTSTRAP_ENABLED"] = "false"   # no background loading of shipped data into test DBs
 
 import pytest
 

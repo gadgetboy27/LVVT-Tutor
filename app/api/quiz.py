@@ -14,6 +14,7 @@ from app.services.rag.vector_store import (
 )
 from app.services.rag.ai_service import generate_quiz_questions, evaluate_answer
 from app.services.quiz.error_rating import curated_questions
+from app.services.rag import question_bank
 
 router = APIRouter(prefix="/api/quiz", tags=["Quiz"])
 
@@ -150,8 +151,12 @@ def generate_quiz(
     # capped at ~60% so repeat attempts still get fresh AI questions.
     curated = [QuizQuestion(**q) for q in curated_questions(request.standard_number, math.ceil(request.num_questions * 0.6))]
     num_needed = request.num_questions - len(curated)
+    # Pre-generated, pre-checked questions: no live AI call, no per-user cost.
+    from_bank = ([QuizQuestion(**q) for q in question_bank.sample_questions(db, standard.id, num_needed)]
+                 if num_needed > 0 else [])
+    num_needed -= len(from_bank)
     if num_needed <= 0:
-        return QuizGenerateResponse(standard_number=request.standard_number, questions=curated)
+        return QuizGenerateResponse(standard_number=request.standard_number, questions=curated + from_bank)
 
     chroma_client = get_chroma_client()
     collection = get_or_create_collection(chroma_client)
@@ -186,7 +191,7 @@ def generate_quiz(
 
     return QuizGenerateResponse(
         standard_number=request.standard_number,
-        questions=curated + questions
+        questions=curated + from_bank + questions
     )
 
 

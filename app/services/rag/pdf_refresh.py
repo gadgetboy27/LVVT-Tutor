@@ -72,7 +72,9 @@ def refresh_stale_pdfs(force: bool = False) -> Dict:
             if not result.get("unchanged"):
                 # The notes were built from the old text; drop them rather than show stale quotes.
                 from app.models.study import StudyPoint
+                from app.models.bank import BankQuestion
                 db.query(StudyPoint).filter(StudyPoint.standard_id == std.id).delete()
+                db.query(BankQuestion).filter(BankQuestion.standard_id == std.id).delete()
             std.content_hash = result["content_hash"]
             if remote_lm:
                 std.last_modified = remote_lm

@@ -25,7 +25,7 @@ from app.api.report import router as report_router
 from app.api.study import router as study_router
 from app.models.quiz import Standard
 
-from app.models import enhanced, analytics, study
+from app.models import enhanced, analytics, study, bank
 
 Base.metadata.create_all(bind=engine)
 
@@ -82,7 +82,8 @@ async def _pdf_refresh_loop():
     while True:
         try:
             await asyncio.to_thread(index_ors_chapters)   # picks up any newly added ORS chapter
-            await asyncio.to_thread(_load_study_guides)
+            if settings.BOOTSTRAP_ENABLED:
+                await asyncio.to_thread(_load_study_guides)
             result = await asyncio.to_thread(refresh_stale_pdfs)
             print(f"PDF refresh: {result}")
         except Exception as e:
@@ -91,11 +92,12 @@ async def _pdf_refresh_loop():
 
 
 def _load_study_guides():
-    """Insert shipped study points for any standard that doesn't have them yet."""
-    from app.services.rag import study_guide
+    """Insert shipped study points and question-bank questions for any standard lacking them."""
+    from app.services.rag import study_guide, question_bank
     db = SessionLocal()
     try:
-        return study_guide.load_points(db, "data/study_guides.json.gz")
+        return {"study": study_guide.load_points(db, "data/study_guides.json.gz"),
+                "bank": question_bank.load_bank(db, "data/question_bank.json.gz")}
     finally:
         db.close()
 
@@ -136,7 +138,7 @@ async def lifespan(app: FastAPI):
         print(f"Standard seeding from ChromaDB skipped: {e}")
     from app.services.rag.bootstrap import link_model_cache
     print(f"Model cache: {link_model_cache()}")
-    bootstrap_task = asyncio.create_task(_bootstrap_corpus())
+    bootstrap_task = asyncio.create_task(_bootstrap_corpus()) if settings.BOOTSTRAP_ENABLED else None
     refresh_task = asyncio.create_task(_pdf_refresh_loop()) if settings.PDF_REFRESH_ENABLED else None
     yield
     for task in (bootstrap_task, refresh_task):

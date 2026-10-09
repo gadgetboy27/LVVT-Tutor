@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     # Keep indexed LVVTA PDFs current: on startup and then every N hours, re-check
     # each source PDF and re-index any that changed upstream.
+    # First-boot loading of the shipped corpus, study guides and question bank. Tests turn this off.
+    BOOTSTRAP_ENABLED: bool = os.environ.get("BOOTSTRAP_ENABLED", "true").lower() in ("1", "true", "yes")
     PDF_REFRESH_ENABLED: bool = os.environ.get("PDF_REFRESH_ENABLED", "true").lower() in ("1", "true", "yes")
     PDF_REFRESH_INTERVAL_HOURS: float = float(os.environ.get("PDF_REFRESH_INTERVAL_HOURS", "24"))
 

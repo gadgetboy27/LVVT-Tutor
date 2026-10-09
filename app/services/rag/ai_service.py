@@ -24,7 +24,8 @@ def _anthropic_ready() -> bool:
 def _get_anthropic() -> anthropic.Anthropic:
     global _anthropic_client
     if _anthropic_client is None:
-        _anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        # A bounded timeout so a dead connection can't hang a request (or a long build) forever.
+        _anthropic_client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY, timeout=180.0, max_retries=2)
     return _anthropic_client
 
 

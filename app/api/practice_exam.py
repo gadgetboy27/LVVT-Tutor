@@ -25,6 +25,7 @@ FORMAL_MINUTES = 30
 FORMAL_PASS_CORRECT = 15
 FORMAL_PASS_PCT = FORMAL_PASS_CORRECT / FORMAL_QUESTIONS * 100   # 75
 LEGACY_PASS_PCT = 80
+MIN_BANK_STANDARDS = 8   # the bank must span at least this many standards to build a mock exam
 LATE_GRACE_SECONDS = 30   # network slack before a late submission fails
 
 
@@ -51,10 +52,49 @@ class SubmitExamRequest(BaseModel):
     answers: dict
 
 
+def _questions_from_bank(db: Session, total: int) -> List[dict]:
+    """Draw `total` pre-checked questions round-robin across standards, so the mock covers the
+    syllabus broadly and needs no live AI. Returns [] if the bank can't fill the exam."""
+    from app.models.bank import BankQuestion
+    by_standard: dict = {}
+    for std in db.query(Standard).all():
+        qs = db.query(BankQuestion).filter(BankQuestion.standard_id == std.id).all()
+        if qs:
+            random.shuffle(qs)
+            by_standard[std] = qs
+    out: List[dict] = []
+    pool = list(by_standard)
+    random.shuffle(pool)
+    while pool and len(out) < total:
+        for std in list(pool):
+            if not by_standard[std]:
+                pool.remove(std)
+                continue
+            r = by_standard[std].pop()
+            page = f" (Official document, page {r.source_page}.)" if r.source_page else ""
+            out.append({"question": r.question, "options": list(r.options), "correct_answer": r.correct_answer,
+                        "explanation": r.explanation + page, "difficulty": r.difficulty or "medium", "type": "MCQ",
+                        "standard_number": std.standard_number, "standard_title": std.title})
+            if len(out) >= total:
+                break
+    # Too few standards would make the mock a narrow quiz, not a sample of the syllabus: let the
+    # caller fall back to live generation until the bank is broad enough.
+    if len(out) < total or len({q["standard_number"] for q in out}) < MIN_BANK_STANDARDS:
+        return []
+    random.shuffle(out)
+    for i, q in enumerate(out):
+        q["question_id"] = i + 1
+    return out
+
+
 def _generate_formal_questions(db: Session, total: int) -> List[dict]:
     """`total` MCQs spread across standards that have indexed content, so the mock
-    covers the whole syllabus the way the real test samples it. LLM calls for a batch
-    of standards run in parallel (sequentially this took minutes)."""
+    covers the whole syllabus the way the real test samples it. Uses the pre-checked
+    question bank when it is big enough; otherwise LLM calls for a batch of standards
+    run in parallel (sequentially this took minutes)."""
+    banked = _questions_from_bank(db, total)
+    if banked:
+        return banked
     collection = get_or_create_collection(get_chroma_client())
     standards = db.query(Standard).all()
     random.shuffle(standards)
