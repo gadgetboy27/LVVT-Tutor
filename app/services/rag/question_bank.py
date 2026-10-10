@@ -32,6 +32,9 @@ Write {n} multiple-choice questions, each based on exactly ONE of the passages b
 Rules:
 - Roughly half should be short SCENARIOS ("A certifier inspects a vehicle where ... What must they do?"); the rest test a specific requirement applied to a concrete case.
 - The correct answer must follow from the passage's quote ALONE. Do not rely on outside knowledge and never invent figures.
+- The question must NOT state or paraphrase its own answer. The correct option has to add the rule, consequence or action that the question leaves out. If the question already describes the fault ("the fasteners crush the tube"), do not make "the fasteners crush the tube" the answer.
+- Do not ask for a term when the question already contains its definition.
+- Only test things a certifier applies when inspecting, deciding or following procedure. Skip glossary entries, acronyms and LVVTA's own internal reporting formats.
 - Do NOT ask which document, chapter, section or form contains something.
 - Four options, one clearly correct; the wrong ones are plausible mistakes a real applicant might make. Keep all options similar in length and detail; the correct one must not be the longest. No "all/none of the above".
 - Refer to the document by its plain name, never by a file-style identifier.
@@ -51,6 +54,42 @@ def _verify_prompt(items: List[dict]) -> str:
 Return a JSON object mapping each item number to a single letter, e.g. {{"1": "B", "2": "?"}}. Nothing else.
 
 {blocks}"""
+
+
+def _judge_prompt(items: List[dict]) -> str:
+    blocks = "\n\n".join(f'[{i}] Question: {it["question"]}\nCorrect answer: {it["answer"]}' for i, it in enumerate(items, 1))
+    return f"""You review exam questions for the LVV Certifier written test. For each item answer two things:
+- "restates": true if the correct answer mostly repeats or paraphrases information ALREADY STATED IN THE QUESTION itself, so a reader could answer without knowing the standard.
+- "relevant": true only if a working certifier needs this to apply the standards or follow procedure; false for glossary entries, acronyms, trivia, or LVVTA's internal reporting formats.
+Return a JSON object like {{"1": {{"restates": false, "relevant": true}}, "2": {{"restates": true, "relevant": true}}}}. Nothing else.
+
+{blocks}"""
+
+
+def judge_questions(questions: List[dict], llm: Callable[[str, str, int], str], workers: int = 4) -> List[dict]:
+    """Return one verdict dict per question: {'restates': bool, 'relevant': bool}. A question whose
+    judgement is missing or malformed gets restates=True (rejected): unchecked never passes."""
+    groups = [questions[i:i + VERIFY_BATCH] for i in range(0, len(questions), VERIFY_BATCH)]
+
+    def run(group):
+        try:
+            data = _json_object(llm("You review exam questions.", _judge_prompt(
+                [{"question": q["question"], "answer": q["correct_answer"]} for q in group]), 800))
+        except Exception as e:
+            print(f"question bank: judging failed: {e}")
+            data = {}
+        out = []
+        for i in range(1, len(group) + 1):
+            v = data.get(str(i)) if isinstance(data, dict) else None
+            if isinstance(v, dict) and isinstance(v.get("restates"), bool) and isinstance(v.get("relevant"), bool):
+                out.append(v)
+            else:
+                out.append({"restates": True, "relevant": False})
+        return out
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        verdicts = [v for group in pool.map(run, groups) for v in group]
+    return verdicts
 
 
 def _json_array(raw: str) -> List[dict]:
@@ -127,6 +166,7 @@ def build_questions(points: List[dict], title: str, llm: Callable[[str, str, int
         checked = list(pool.map(verify, groups))
 
     kept, rejected, unchecked = [], 0, 0
+    answerable = []
     for group, answers in checked:
         if answers is None:
             unchecked += len(group)          # a failed check never lets a question through
@@ -134,15 +174,27 @@ def build_questions(points: List[dict], title: str, llm: Callable[[str, str, int
         for i, q in enumerate(group, 1):
             letter = str(answers.get(str(i), "?")).strip().upper()[:1]
             if letter == "ABCD"[correct_index(q)]:
-                kept.append(q)
+                answerable.append(q)
             else:
                 rejected += 1
+
+    # Answerable from the quote is not enough: a question can be answerable because its stem
+    # gives the answer away, or can test glossary trivia. Judge both.
+    leaked = irrelevant = 0
+    for q, v in zip(answerable, judge_questions(answerable, llm, workers)):
+        if v["restates"]:
+            leaked += 1
+        elif not v["relevant"]:
+            irrelevant += 1
+        else:
+            kept.append(q)
     random.shuffle(kept)
     kept = kept[:MAX_QUESTIONS_PER_STANDARD]
     return {"questions": kept,
             "stats": {"passages": len(chosen), "batches": len(batches), "failed_batches": failed,
                       "candidates": len(candidates), "dropped_format": dropped_format,
-                      "rejected_by_check": rejected, "unchecked": unchecked, "kept": len(kept)}}
+                      "rejected_by_check": rejected, "restating": leaked, "irrelevant": irrelevant,
+                      "unchecked": unchecked, "kept": len(kept)}}
 
 
 # --------------------------------------------------------------------------- persistence / serving
@@ -193,10 +245,17 @@ def export_bank(db, path: str) -> int:
     return len(rows)
 
 
+def _fingerprint(texts) -> str:
+    import hashlib
+    return hashlib.sha1("\n".join(sorted(texts)).encode()).hexdigest()
+
+
 def load_bank(db, path: str) -> Dict:
-    """Insert shipped questions for any standard that has none yet. Idempotent."""
+    """Make each standard's stored bank match the shipped file. Standards without questions get them;
+    a standard whose questions differ (e.g. flawed ones were removed) is replaced. Idempotent."""
     import gzip
     import os
+    from collections import defaultdict
     from app.models.bank import BankQuestion
     from app.models.quiz import Standard
     if not os.path.exists(path):
@@ -204,14 +263,24 @@ def load_bank(db, path: str) -> Dict:
     with gzip.open(path, "rt", encoding="utf-8") as f:
         rows = json.load(f)
     ids = {s.standard_number: s.id for s in db.query(Standard).all()}
-    have = {sid for (sid,) in db.query(BankQuestion.standard_id).distinct().all()}
-    added, standards = 0, set()
+    shipped = defaultdict(list)
     for r in rows:
-        sid = ids.get(r["standard_number"])
-        if sid is None or sid in have:
+        if r["standard_number"] in ids:
+            shipped[r["standard_number"]].append(r)
+    stored = defaultdict(list)
+    for bq in db.query(BankQuestion).all():
+        stored[bq.standard_id].append(bq)
+
+    added = replaced = 0
+    for number, items in shipped.items():
+        sid = ids[number]
+        if _fingerprint(i["question"] for i in items) == _fingerprint(b.question for b in stored.get(sid, [])):
             continue
-        db.add(BankQuestion(standard_id=sid, **{k: r[k] for k in _FIELDS}))
-        added += 1
-        standards.add(r["standard_number"])
+        if stored.get(sid):
+            db.query(BankQuestion).filter(BankQuestion.standard_id == sid).delete()
+            replaced += 1
+        for r in items:
+            db.add(BankQuestion(standard_id=sid, **{k: r[k] for k in _FIELDS}))
+            added += 1
     db.commit()
-    return {"added": added, "standards": len(standards)}
+    return {"added": added, "standards": len(shipped), "replaced": replaced}

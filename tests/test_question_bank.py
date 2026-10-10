@@ -33,11 +33,19 @@ def _q(passage=1, key="A", question=None, **kw):
     return d
 
 
-def _llm(generated, verdicts):
-    """Fake AI: first call(s) return `generated`, verification calls return `verdicts(group_prompt)`."""
+def _llm(generated, verdicts, judge=None):
+    """Fake AI: generation returns `generated`; the answer check returns `verdicts(prompt)`; the
+    review pass returns `judge(prompt)` (default: every question is fine)."""
+    import re
+
+    def fine(user):
+        return {m: {"restates": False, "relevant": True} for m in re.findall(r"^\[(\d+)\] Question:", user, re.M)}
+
     def llm(system, user, max_tokens):
         if system.startswith("You check"):
             return json.dumps(verdicts(user))
+        if system.startswith("You review"):
+            return json.dumps((judge or fine)(user))
         return json.dumps(generated)
     return llm
 
@@ -155,8 +163,45 @@ def test_export_and_idempotent_load(env, tmp_path):
     path = str(tmp_path / "b.json.gz")
     assert qb.export_bank(db, path) == 5
     db.query(BankQuestion).delete(); db.commit()
-    assert qb.load_bank(db, path) == {"added": 5, "standards": 2}
-    assert qb.load_bank(db, path) == {"added": 0, "standards": 0}
+    assert qb.load_bank(db, path) == {"added": 5, "standards": 2, "replaced": 0}
+    assert qb.load_bank(db, path) == {"added": 0, "standards": 2, "replaced": 0}      # unchanged: nothing to do
+
+
+def test_load_replaces_a_standards_bank_when_the_shipped_file_changed(env, tmp_path):
+    """Removing a flawed question from the shipped file must reach deployments that already have the old one."""
+    db, user, stds = env
+    _fill(db, stds[0], 4); _fill(db, stds[1], 2)
+    old = str(tmp_path / "old.json.gz"); qb.export_bank(db, old)
+    db.query(BankQuestion).filter(BankQuestion.standard_id == stds[0].id, BankQuestion.question.like("%question 0?")).delete()
+    db.commit()
+    new = str(tmp_path / "new.json.gz"); assert qb.export_bank(db, new) == 5            # one flawed question removed
+    db.query(BankQuestion).delete(); db.commit()
+    qb.load_bank(db, old)                                                               # a deployment holding the old bank
+    assert qb.bank_size(db, stds[0].id) == 4
+    assert qb.load_bank(db, new) == {"added": 3, "standards": 2, "replaced": 1}        # only the changed standard is rebuilt
+    assert qb.bank_size(db, stds[0].id) == 3 and qb.bank_size(db, stds[1].id) == 2
+
+
+# --------------------------------------------------------------------------- the review pass
+def test_circular_and_irrelevant_questions_are_discarded():
+    def judge(user):
+        return {"1": {"restates": True, "relevant": True},        # answer just repeats the question
+                "2": {"restates": False, "relevant": False},      # glossary trivia
+                "3": {"restates": False, "relevant": True}}
+    res = qb.build_questions(POINTS, "T", _llm([_q(1), _q(2), _q(3)], _key_for_all, judge), workers=1)
+    assert res["stats"]["kept"] == 1 and res["stats"]["restating"] == 1 and res["stats"]["irrelevant"] == 1
+    assert res["stats"]["candidates"] == 3
+
+
+def test_a_missing_or_malformed_verdict_never_lets_a_question_through():
+    res = qb.build_questions(POINTS, "T", _llm([_q(1), _q(2)], _key_for_all, lambda user: {"1": "yes"}), workers=1)
+    assert res["questions"] == []
+
+
+def test_judge_questions_directly():
+    qs = [{"question": "q1", "correct_answer": "a"}, {"question": "q2", "correct_answer": "b"}]
+    v = qb.judge_questions(qs, _llm([], lambda u: {}, lambda u: {"1": {"restates": False, "relevant": True}}), workers=1)
+    assert v[0] == {"restates": False, "relevant": True} and v[1]["restates"] is True     # item 2 missing -> rejected
 
 
 def test_changed_pdf_drops_its_bank(env, monkeypatch):
